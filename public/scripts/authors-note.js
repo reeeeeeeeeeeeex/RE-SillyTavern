@@ -295,6 +295,13 @@ function loadSettings() {
     chat_metadata[metadata_keys.position] = chat_metadata[metadata_keys.position] ?? extension_settings.note.defaultPosition ?? DEFAULT_POSITION;
     chat_metadata[metadata_keys.depth] = chat_metadata[metadata_keys.depth] ?? extension_settings.note.defaultDepth ?? DEFAULT_DEPTH;
     chat_metadata[metadata_keys.role] = chat_metadata[metadata_keys.role] ?? extension_settings.note.defaultRole ?? DEFAULT_ROLE;
+
+    // Force migration for prefix-cache optimization: move Author's Note insertion to bottom of chat.
+    if (Number(chat_metadata[metadata_keys.position]) === extension_prompt_types.IN_PROMPT) {
+        chat_metadata[metadata_keys.position] = extension_prompt_types.IN_CHAT;
+        chat_metadata[metadata_keys.depth] = 0;
+    }
+
     $('#extension_floating_prompt').val(chat_metadata[metadata_keys.prompt]);
     $('#extension_floating_interval').val(chat_metadata[metadata_keys.interval]);
     $('#extension_floating_allow_wi_scan').prop('checked', extension_settings.note.allowWIScan ?? false);
