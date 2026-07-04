@@ -128,7 +128,7 @@
                         </label>
                         <input id="memory_override_response_length" type="range" value="{{defaultSettings.overrideResponseLength}}" min="{{defaultSettings.overrideResponseLengthMin}}" max="{{defaultSettings.overrideResponseLengthMax}}" step="{{defaultSettings.overrideResponseLengthStep}}" />
                                                   <label for="memory_manual_summarize_range">
-                              <span>Manual Summarize Range (Total Lookback)</span> (<span id="memory_manual_summarize_range_value"></span>)
+                              <span>Manual Summarize Range (Total Lookback)</span> <input id="memory_manual_summarize_range_value" class="text_pole widthUnset" type="number" min="0" max="10000" />
                               <small class="memory_disabled_hint">0 = Auto (since last summary)</small>
                           </label>
                           <input id="memory_manual_summarize_range" type="range" value="{{defaultSettings.manualSummarizeRange}}" min="{{defaultSettings.manualSummarizeRangeMin}}" max="{{defaultSettings.manualSummarizeRangeMax}}" step="{{defaultSettings.manualSummarizeRangeStep}}" />

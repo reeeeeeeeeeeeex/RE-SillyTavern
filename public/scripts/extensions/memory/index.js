@@ -139,7 +139,7 @@ const defaultSettings = {
     maxMessagesPerRequestStep: 1,
     manualSummarizeRange: 0,
     manualSummarizeRangeMin: 0,
-    manualSummarizeRangeMax: 1000,
+    manualSummarizeRangeMax: 10000,
     manualSummarizeRangeStep: 1,
     prompt_builder: prompt_builders.DEFAULT,
 };
@@ -186,7 +186,8 @@ function loadSettings() {
     $(`input[name="memory_prompt_builder"][value="${extension_settings.memory.prompt_builder}"]`).prop('checked', true).trigger('input');
     $('#memory_override_response_length').val(extension_settings.memory.overrideResponseLength).trigger('input');
     $('#memory_max_messages_per_request').val(extension_settings.memory.maxMessagesPerRequest).trigger('input');
-    $('#memory_manual_summarize_range').val(extension_settings.memory.manualSummarizeRange).trigger('input');
+    $('#memory_manual_summarize_range').val(extension_settings.memory.manualSummarizeRange);
+    $('#memory_manual_summarize_range_value').val(extension_settings.memory.manualSummarizeRange);
     $('#memory_include_wi_scan').prop('checked', extension_settings.memory.scan).trigger('input');
     switchSourceControls(extension_settings.memory.source);
 }
@@ -376,7 +377,8 @@ function onMaxMessagesPerRequestInput() {
 function onManualSummarizeRangeInput() {
     const value = $(this).val();
     extension_settings.memory.manualSummarizeRange = Number(value);
-    $('#memory_manual_summarize_range_value').text(extension_settings.memory.manualSummarizeRange);
+    $('#memory_manual_summarize_range_value').val(extension_settings.memory.manualSummarizeRange);
+    $('#memory_manual_summarize_range').val(extension_settings.memory.manualSummarizeRange);
     saveSettingsDebounced();
 }
 
@@ -713,13 +715,19 @@ async function summarizeChatCustom(context) {
                 requestBody.max_tokens = Number(extension_settings.memory.custom_max_tokens);
             }
 
-            const response = await fetch(url, {
+            const response = await fetch('/api/memory/proxy', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${extension_settings.memory.custom_key || ''}`
                 },
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify({
+                    url: url,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${extension_settings.memory.custom_key || ''}`
+                    },
+                    body: requestBody
+                })
             });
 
             if (!response.ok) {
@@ -1074,7 +1082,7 @@ function setupListeners() {
     $('#memory_prompt_words_auto').off('click').on('click', onPromptForceWordsAutoClick);
     $('#memory_override_response_length').off('input').on('input', onOverrideResponseLengthInput);
     $('#memory_max_messages_per_request').off('input').on('input', onMaxMessagesPerRequestInput);
-    $('#memory_manual_summarize_range').off('input').on('input', onManualSummarizeRangeInput);
+    $('#memory_manual_summarize_range, #memory_manual_summarize_range_value').off('input').on('input', onManualSummarizeRangeInput);
     $('#memory_include_wi_scan').off('input').on('input', onMemoryIncludeWIScanInput);
     $('#summarySettingsBlockToggle').off('click').on('click', function () {
         document.getElementById('memory_advanced_modal').showModal();

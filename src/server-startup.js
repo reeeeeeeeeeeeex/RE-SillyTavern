@@ -146,6 +146,23 @@ export function setupPrivateEndpoints(app) {
     app.use('/api/quick-replies', quickRepliesRouter);
     app.use('/api/avatars', avatarsRouter);
     app.use('/api/themes', themesRouter);
+    app.post('/api/memory/proxy', async (req, res) => {
+        try {
+            const { url, headers, body } = req.body;
+            const fetch = (await import('node-fetch')).default;
+            const result = await fetch(url, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(body),
+            });
+            const data = await result.json();
+            res.json(data);
+        } catch (e) {
+            console.error('[Memory Proxy] Error:', e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     app.use('/api/openai', openAiRouter);
     app.use('/api/google', googleRouter);
     app.use('/api/anthropic', anthropicRouter);
