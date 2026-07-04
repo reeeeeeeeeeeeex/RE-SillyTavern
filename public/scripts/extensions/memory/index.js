@@ -1231,6 +1231,10 @@ function setupListeners() {
         }
     });
 
+    // Move the modal to the body to prevent stacking context/overflow issues inside the extensions menu
+    if ($('#memory_advanced_modal').length) {
+        $(document.body).append($('#memory_advanced_modal'));
+    }
 }
 
 export async function init() {
