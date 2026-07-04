@@ -93,7 +93,7 @@ export const worldInfoFilter = new FilterHelper(() => updateEditor());
 export const SORT_ORDER_KEY = 'world_info_sort_order';
 export const METADATA_KEY = 'world_info';
 
-export const DEFAULT_DEPTH = 4;
+export const DEFAULT_DEPTH = 0;
 export const DEFAULT_WEIGHT = 100;
 export const MAX_SCAN_DEPTH = 1000;
 const MAX_COMMENT_LENGTH = 100;
@@ -4010,7 +4010,7 @@ export const newWorldInfoEntryDefinition = {
     selectiveLogic: { default: world_info_logic.AND_ANY, type: 'enum' },
     addMemo: { default: false, type: 'boolean' },
     order: { default: 100, type: 'number' },
-    position: { default: 0, type: 'number' },
+    position: { default: 4, type: 'number' },
     disable: { default: false, type: 'boolean' },
     ignoreBudget: { default: false, type: 'boolean' },
     excludeRecursion: { default: false, type: 'boolean' },
@@ -5371,7 +5371,7 @@ function convertAgnaiMemoryBook(inputObj) {
             vectorized: false,
             selectiveLogic: world_info_logic.AND_ANY,
             order: entry.weight,
-            position: 0,
+            position: 4,
             disable: !entry.enabled,
             addMemo: !!entry.name,
             excludeRecursion: false,
@@ -5416,7 +5416,7 @@ function convertRisuLorebook(inputObj) {
             vectorized: false,
             selectiveLogic: world_info_logic.AND_ANY,
             order: entry.insertorder,
-            position: world_info_position.before,
+            position: world_info_position.atDepth,
             disable: false,
             addMemo: true,
             excludeRecursion: false,
@@ -5466,7 +5466,7 @@ function convertNovelLorebook(inputObj) {
             vectorized: false,
             selectiveLogic: world_info_logic.AND_ANY,
             order: entry.contextConfig?.budgetPriority ?? 0,
-            position: 0,
+            position: 4,
             disable: !entry.enabled,
             addMemo: addMemo,
             excludeRecursion: false,

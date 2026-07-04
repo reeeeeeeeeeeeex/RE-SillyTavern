@@ -2090,14 +2090,6 @@ const promptManagerDefaultPromptOrder = [
         'enabled': true,
     },
     {
-        'identifier': 'worldInfoBefore',
-        'enabled': true,
-    },
-    {
-        'identifier': 'personaDescription',
-        'enabled': true,
-    },
-    {
         'identifier': 'charDescription',
         'enabled': true,
     },
@@ -2110,11 +2102,19 @@ const promptManagerDefaultPromptOrder = [
         'enabled': true,
     },
     {
+        'identifier': 'personaDescription',
+        'enabled': true,
+    },
+    {
         'identifier': 'enhanceDefinitions',
         'enabled': false,
     },
     {
         'identifier': 'nsfw',
+        'enabled': true,
+    },
+    {
+        'identifier': 'worldInfoBefore',
         'enabled': true,
     },
     {

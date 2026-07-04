@@ -1199,14 +1199,15 @@ async function populateChatCompletion(prompts, chatCompletion, { bias, quietProm
     };
 
     chatCompletion.reserveBudget(3); // every reply is primed with <|start|>assistant<|message|>
-    // Character and world information
-    await addToChatCompletion('worldInfoBefore');
+    // Character and world information — stable content first for prefix caching
     await addToChatCompletion('main');
-    await addToChatCompletion('worldInfoAfter');
     await addToChatCompletion('charDescription');
     await addToChatCompletion('charPersonality');
     await addToChatCompletion('scenario');
     await addToChatCompletion('personaDescription');
+    // Dynamic world info after stable prompts — improves cache hit rate for prefix-caching APIs (DeepSeek, etc.)
+    await addToChatCompletion('worldInfoBefore');
+    await addToChatCompletion('worldInfoAfter');
 
     // Collection of control prompts that will always be positioned last
     chatCompletion.setOverriddenPrompts(prompts.overriddenPrompts);

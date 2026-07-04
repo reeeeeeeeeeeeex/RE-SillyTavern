@@ -269,7 +269,7 @@ function onExtensionFloatingDefaultInput() {
 }
 
 function loadSettings() {
-    const DEFAULT_DEPTH = 4;
+    const DEFAULT_DEPTH = 0;
     const DEFAULT_POSITION = 1;
     const DEFAULT_INTERVAL = 1;
     const DEFAULT_ROLE = extension_prompt_roles.SYSTEM;

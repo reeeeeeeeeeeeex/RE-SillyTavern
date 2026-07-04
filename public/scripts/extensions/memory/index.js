@@ -102,19 +102,19 @@ const prompt_builders = {
     RAW_NON_BLOCKING: 2,
 };
 
-const defaultPrompt = 'Ignore previous instructions. Summarize the most important facts and events in the story so far. If a summary already exists in your memory, use that as a base and expand with new facts. Limit the summary to {{words}} words or less. Your response should include nothing but the summary.';
+const defaultPrompt = 'Ignore previous instructions. Summarize the most important facts and events in the recent chat messages below. This is an incremental summary, so do not include earlier events that are already summarized, just focus on the new developments. Limit the summary to {{words}} words or less. Your response should include nothing but the summary.';
 const defaultTemplate = '[Summary: {{summary}}]';
 
 const defaultSettings = {
     memoryFrozen: false,
     SkipWIAN: false,
-    source: summary_sources.extras,
+    source: summary_sources.main,
     prompt: defaultPrompt,
     template: defaultTemplate,
-    position: extension_prompt_types.IN_PROMPT,
+    position: extension_prompt_types.IN_CHAT,
     role: extension_prompt_roles.SYSTEM,
     scan: false,
-    depth: 2,
+    depth: 0,
     promptWords: 200,
     promptMinWords: 25,
     promptMaxWords: 1000,
@@ -671,8 +671,17 @@ async function summarizeChatWebLLM(context, force) {
             return;
         }
 
-        setMemoryContext(summary, true, lastUsedIndex);
-        return summary;
+        const existingSummary = getLatestMemoryFromChat(context.chat);
+        let finalSummary = summary;
+        if (existingSummary && existingSummary.trim() !== '') {
+            let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
+            finalSummary = `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
+        } else {
+            finalSummary = `[Stage 1]: ${summary.trim()}`;
+        }
+
+        setMemoryContext(finalSummary, true, lastUsedIndex);
+        return finalSummary;
     } finally {
         inApiCall = false;
     }
@@ -748,8 +757,17 @@ async function summarizeChatMain(context, force, skipWIAN) {
         return;
     }
 
-    setMemoryContext(summary, true, index);
-    return summary;
+    const existingSummary = getLatestMemoryFromChat(context.chat);
+    let finalSummary = summary;
+    if (existingSummary && existingSummary.trim() !== '') {
+        let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
+        finalSummary = `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
+    } else {
+        finalSummary = `[Stage 1]: ${summary.trim()}`;
+    }
+
+    setMemoryContext(finalSummary, true, index);
+    return finalSummary;
 }
 
 /**
@@ -773,9 +791,10 @@ async function getRawSummaryPrompt(context, prompt) {
             stringBuilder.push(prompt);
         }
 
-        if (latestSummary) {
-            stringBuilder.push(latestSummary);
-        }
+        // Do not include latestSummary in the prompt because we are doing incremental chunked summary
+        // if (latestSummary) {
+        //     stringBuilder.push(latestSummary);
+        // }
 
         stringBuilder.push(bufferString);
 

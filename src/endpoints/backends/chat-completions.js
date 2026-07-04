@@ -1119,6 +1119,14 @@ async function sendDeepSeekRequest(request, response) {
                 return response.status(500).send(errorJson);
             }
             const generateResponseJson = await generateResponse.json();
+            // Log cache stats from non-streaming response
+            if (generateResponseJson?.usage) {
+                const { prompt_cache_hit_tokens, prompt_cache_miss_tokens, prompt_tokens } = generateResponseJson.usage;
+                if (prompt_cache_hit_tokens !== undefined) {
+                    const hitRate = prompt_tokens > 0 ? ((prompt_cache_hit_tokens / prompt_tokens) * 100).toFixed(1) : '0.0';
+                    console.log(`[DeepSeek Cache] Hit: ${prompt_cache_hit_tokens}, Miss: ${prompt_cache_miss_tokens}, Total: ${prompt_tokens}, Rate: ${hitRate}%`);
+                }
+            }
             console.debug('DeepSeek response:', generateResponseJson);
             return response.send(generateResponseJson);
         }

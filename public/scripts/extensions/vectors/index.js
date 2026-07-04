@@ -86,8 +86,8 @@ const settings = {
     enabled_chats: false,
     keep_hidden: false,
     template: 'Past events:\n{{text}}',
-    depth: 2,
-    position: extension_prompt_types.IN_PROMPT,
+    depth: 0,
+    position: extension_prompt_types.IN_CHAT,
     protect: 5,
     insert: 3,
     query: 2,
@@ -109,8 +109,8 @@ const settings = {
     chunk_count_db: 5,
     overlap_percent_db: 0,
     file_template_db: 'Related information:\n{{text}}',
-    file_position_db: extension_prompt_types.IN_PROMPT,
-    file_depth_db: 4,
+    file_position_db: extension_prompt_types.IN_CHAT,
+    file_depth_db: 0,
     file_depth_role_db: extension_prompt_roles.SYSTEM,
 
     // For World Info
