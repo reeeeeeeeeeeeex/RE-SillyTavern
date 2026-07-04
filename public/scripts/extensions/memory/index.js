@@ -91,6 +91,7 @@ const formatMemoryValue = function (value) {
 const saveChatDebounced = debounce(() => getContext().saveChat(), debounce_timeout.relaxed);
 
 const summary_sources = {
+    'custom': 'custom',
     'extras': 'extras',
     'main': 'main',
     'webllm': 'webllm',
@@ -106,6 +107,11 @@ const defaultPrompt = 'Ignore previous instructions. Summarize the most importan
 const defaultTemplate = '[Summary: {{summary}}]';
 
 const defaultSettings = {
+    custom_url: 'http://127.0.0.1:5000/v1',
+    custom_key: '',
+    custom_model: '',
+    custom_temp: 0.5,
+    custom_max_tokens: 1024,
     memoryFrozen: false,
     SkipWIAN: false,
     source: summary_sources.main,
@@ -149,7 +155,7 @@ function loadSettings() {
     }
 
     // Force migration for cache optimization: Move memory insertion to bottom of chat
-    if (extension_settings.memory.position === extension_prompt_types.IN_PROMPT) {
+    if (Number(extension_settings.memory.position) === extension_prompt_types.IN_PROMPT) {
         extension_settings.memory.position = extension_prompt_types.IN_CHAT;
         extension_settings.memory.depth = 0;
     }
@@ -160,7 +166,13 @@ function loadSettings() {
         }
     }
 
+
     $('#summary_source').val(extension_settings.memory.source).trigger('change');
+    $('#memory_custom_api_url').val(extension_settings.memory.custom_url).trigger('input');
+    $('#memory_custom_api_key').val(extension_settings.memory.custom_key).trigger('input');
+    $('#memory_custom_api_model').val(extension_settings.memory.custom_model).trigger('input');
+    $('#memory_custom_api_temp').val(extension_settings.memory.custom_temp).trigger('input');
+    $('#memory_custom_api_max_tokens').val(extension_settings.memory.custom_max_tokens).trigger('input');
     $('#memory_frozen').prop('checked', extension_settings.memory.memoryFrozen).trigger('input');
     $('#memory_skipWIAN').prop('checked', extension_settings.memory.SkipWIAN).trigger('input');
     $('#memory_prompt').val(extension_settings.memory.prompt).trigger('input');
@@ -262,7 +274,7 @@ function onSummarySourceChange(event) {
 }
 
 function switchSourceControls(value) {
-    $('#summaryExtensionDrawerContents [data-summary-source], #memory_settings [data-summary-source]').each((_, element) => {
+    $('#summaryExtensionDrawerContents [data-summary-source], #memory_settings [data-summary-source], #memory_advanced_modal [data-summary-source]').each((_, element) => {
         const source = element.dataset.summarySource.split(',').map(s => s.trim());
         $(element).toggle(source.includes(value));
     });
@@ -552,6 +564,9 @@ async function summarizeCallback(args, text) {
 async function summarizeChat(context) {
     const skipWIAN = extension_settings.memory.SkipWIAN;
     switch (extension_settings.memory.source) {
+        case summary_sources.custom:
+            await summarizeChatCustom(context);
+            break;
         case summary_sources.extras:
             await summarizeChatExtras(context);
             break;
@@ -634,6 +649,73 @@ async function getSummaryPromptForNow(context, force) {
     }
 
     return prompt;
+}
+
+
+async function summarizeChatCustom(context) {
+    const prompt = await getSummaryPromptForNow(context, false);
+    if (!prompt) return;
+
+    const { rawPrompt, lastUsedIndex } = await getRawSummaryPrompt(context, prompt);
+
+    if (lastUsedIndex === null || lastUsedIndex === -1) {
+        return null;
+    }
+
+    console.log('sending custom summary API request');
+    try {
+        inApiCall = true;
+        const url = (extension_settings.memory.custom_url || '').replace(/\/+$/, '') + '/chat/completions';
+        const requestBody = {
+            model: extension_settings.memory.custom_model || '',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: rawPrompt }
+            ],
+            temperature: Number(extension_settings.memory.custom_temp),
+        };
+        if (Number(extension_settings.memory.custom_max_tokens) > 0) {
+            requestBody.max_tokens = Number(extension_settings.memory.custom_max_tokens);
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${extension_settings.memory.custom_key || ''}`
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            toastr.error(`Custom API Error: ${response.statusText}`);
+            return;
+        }
+
+        const data = await response.json();
+        const summary = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+
+        if (summary) {
+            const existingSummary = getLatestMemoryFromChat(context.chat);
+            let finalSummary = summary;
+            if (existingSummary && existingSummary.trim() !== '') {
+                let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
+                finalSummary = `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
+            } else {
+                finalSummary = `[Stage 1]: ${summary.trim()}`;
+            }
+            
+            setMemoryContext(finalSummary, true, lastUsedIndex);
+            console.log('Custom summary generated', summary);
+        } else {
+            toastr.error('No summary generated from Custom API');
+        }
+    } catch (e) {
+        console.error(e);
+        toastr.error(`Custom API Request Failed: ${e.message}`);
+    } finally {
+        inApiCall = false;
+    }
 }
 
 async function summarizeChatWebLLM(context, force) {
@@ -1089,8 +1171,66 @@ function setupListeners() {
     $('#memory_max_messages_per_request').off('input').on('input', onMaxMessagesPerRequestInput);
     $('#memory_include_wi_scan').off('input').on('input', onMemoryIncludeWIScanInput);
     $('#summarySettingsBlockToggle').off('click').on('click', function () {
-        $('#summarySettingsBlock').slideToggle(200, 'swing');
+        document.getElementById('memory_advanced_modal').showModal();
     });
+    $('#memory_advanced_modal_close').off('click').on('click', function () {
+        document.getElementById('memory_advanced_modal').close();
+    });
+    $('#memory_custom_api_url').on('input', function() { extension_settings.memory.custom_url = $(this).val(); saveSettingsDebounced(); });
+    $('#memory_custom_api_key').on('input', function() { extension_settings.memory.custom_key = $(this).val(); saveSettingsDebounced(); });
+    $('#memory_custom_api_model').on('input', function() { extension_settings.memory.custom_model = $(this).val(); saveSettingsDebounced(); });
+    $('#memory_custom_api_model_select').on('change', function() { 
+        if ($(this).val()) {
+            $('#memory_custom_api_model').val($(this).val()).trigger('input');
+        }
+    });
+    $('#memory_custom_api_temp').on('input', function() { 
+        extension_settings.memory.custom_temp = Number($(this).val()); 
+        $('#memory_custom_api_temp_value').text($(this).val());
+        saveSettingsDebounced(); 
+    });
+    $('#memory_custom_api_max_tokens').on('input', function() { 
+        extension_settings.memory.custom_max_tokens = Number($(this).val()); 
+        $('#memory_custom_api_max_tokens_value').text($(this).val());
+        saveSettingsDebounced(); 
+    });
+    
+    $('#memory_custom_api_key_toggle').on('click', function() {
+        const input = $('#memory_custom_api_key');
+        if (input.attr('type') === 'password') {
+            input.attr('type', 'text');
+            $(this).removeClass('fa-eye').addClass('fa-eye-slash');
+        } else {
+            input.attr('type', 'password');
+            $(this).removeClass('fa-eye-slash').addClass('fa-eye');
+        }
+    });
+    
+    $('#memory_custom_api_fetch_models').on('click', async function() {
+        try {
+            const btn = $(this);
+            btn.addClass('disabled');
+            const url = (extension_settings.memory.custom_url || '').replace(/\/+$/, '') + '/models';
+            const res = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${extension_settings.memory.custom_key || ''}` }
+            });
+            if (!res.ok) throw new Error(res.statusText);
+            const data = await res.json();
+            const models = data.data || [];
+            const select = $('#memory_custom_api_model_select');
+            select.empty();
+            select.append(`<option value="">(Select model...)</option>`);
+            models.forEach(m => {
+                select.append(`<option value="${m.id}">${m.id}</option>`);
+            });
+            toastr.success('Models fetched');
+        } catch(e) {
+            toastr.error('Fetch Models Failed: ' + e.message);
+        } finally {
+            $(this).removeClass('disabled');
+        }
+    });
+
 }
 
 export async function init() {
