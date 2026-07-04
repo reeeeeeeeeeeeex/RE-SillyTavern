@@ -89,9 +89,8 @@ if %errorlevel% equ 0 (
     goto install
 )
 
-echo Updating and rebasing against 'origin'
-git pull --rebase --autostash origin %TARGET_BRANCH%
-
+echo [RE-SillyTavern] Auto-update has been disabled by the user to prevent code override.
+REM git pull --rebase --autostash origin %TARGET_BRANCH%
 
 :install
 if %errorlevel% neq 0 (

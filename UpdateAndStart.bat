@@ -11,8 +11,8 @@ if %errorlevel% neq 0 (
         echo See: https://docs.sillytavern.app/installation/windows/
         goto end
     )
-    call git pull --rebase --autostash
-    if %errorlevel% neq 0 (
+    echo [RE-SillyTavern] Auto-update has been disabled by the user to prevent code override.
+    REM call git pull --rebase --autostash    if %errorlevel% neq 0 (
         REM incase there is still something wrong
         echo [91mThere were errors while updating.[0m
         echo See the update FAQ at https://docs.sillytavern.app/installation/updating/
