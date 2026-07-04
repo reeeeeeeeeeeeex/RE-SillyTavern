@@ -92,9 +92,7 @@ const saveChatDebounced = debounce(() => getContext().saveChat(), debounce_timeo
 
 const summary_sources = {
     'custom': 'custom',
-    'extras': 'extras',
-    'main': 'main',
-    'webllm': 'webllm',
+    'main': 'main'
 };
 
 const prompt_builders = {
@@ -567,14 +565,8 @@ async function summarizeChat(context) {
         case summary_sources.custom:
             await summarizeChatCustom(context);
             break;
-        case summary_sources.extras:
-            await summarizeChatExtras(context);
-            break;
         case summary_sources.main:
             await summarizeChatMain(context, false, skipWIAN);
-            break;
-        case summary_sources.webllm:
-            await summarizeChatWebLLM(context, false);
             break;
         default:
             break;
@@ -713,68 +705,6 @@ async function summarizeChatCustom(context) {
     } catch (e) {
         console.error(e);
         toastr.error(`Custom API Request Failed: ${e.message}`);
-    } finally {
-        inApiCall = false;
-    }
-}
-
-async function summarizeChatWebLLM(context, force) {
-    if (!isWebLlmSupported()) {
-        return;
-    }
-
-    const prompt = await getSummaryPromptForNow(context, force);
-
-    if (!prompt) {
-        return;
-    }
-
-    const { rawPrompt, lastUsedIndex } = await getRawSummaryPrompt(context, prompt);
-
-    if (lastUsedIndex === null || lastUsedIndex === -1) {
-        if (force) {
-            toastr.info('To try again, remove the latest summary.', 'No messages found to summarize');
-        }
-
-        return null;
-    }
-
-    const messages = [
-        { role: 'system', content: prompt },
-        { role: 'user', content: rawPrompt },
-    ];
-
-    const params = {};
-
-    if (extension_settings.memory.overrideResponseLength > 0) {
-        params.max_tokens = extension_settings.memory.overrideResponseLength;
-    }
-
-    try {
-        inApiCall = true;
-        const summary = await generateWebLlmChatPrompt(messages, params);
-
-        if (!summary) {
-            console.warn('Empty summary received');
-            return;
-        }
-
-        // something changed during summarization request
-        if (isContextChanged(context)) {
-            return;
-        }
-
-        const existingSummary = getLatestMemoryFromChat(context.chat);
-        let finalSummary = summary;
-        if (existingSummary && existingSummary.trim() !== '') {
-            let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
-            finalSummary = `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
-        } else {
-            finalSummary = `[Stage 1]: ${summary.trim()}`;
-        }
-
-        setMemoryContext(finalSummary, true, lastUsedIndex);
-        return finalSummary;
     } finally {
         inApiCall = false;
     }
@@ -934,70 +864,6 @@ async function getRawSummaryPrompt(context, prompt) {
     const lastUsedIndex = context.chat.indexOf(latestUsedMessage);
     const rawPrompt = getMemoryString(false);
     return { rawPrompt, lastUsedIndex };
-}
-
-async function summarizeChatExtras(context) {
-    function getMemoryString() {
-        return (longMemory + '\n\n' + memoryBuffer.slice().reverse().join('\n\n')).trim();
-    }
-
-    const chat = context.chat;
-    const longMemory = getLatestMemoryFromChat(chat);
-    const reversedChat = chat.slice().reverse();
-    reversedChat.shift();
-    const memoryBuffer = [];
-    const CONTEXT_SIZE = await getSourceContextSize();
-
-    for (const message of reversedChat) {
-        // we reached the point of latest memory
-        if (longMemory && message.extra && message.extra.memory == longMemory) {
-            break;
-        }
-
-        // don't care about system
-        if (message.is_system) {
-            continue;
-        }
-
-        // determine the sender's name
-        const entry = `${message.name}:\n${message.mes}`;
-        memoryBuffer.push(entry);
-
-        // check if token limit was reached
-        const tokens = await countSourceTokens(getMemoryString());
-        if (tokens >= CONTEXT_SIZE) {
-            break;
-        }
-    }
-
-    const resultingString = getMemoryString();
-    const resultingTokens = await countSourceTokens(resultingString);
-
-    if (!resultingString || resultingTokens < CONTEXT_SIZE) {
-        console.debug('Not enough context to summarize');
-        return;
-    }
-
-    // perform the summarization API call
-    try {
-        inApiCall = true;
-        const summary = await callExtrasSummarizeAPI(resultingString);
-
-        if (!summary) {
-            console.warn('Empty summary received');
-            return;
-        }
-
-        if (isContextChanged(context)) {
-            return;
-        }
-
-        setMemoryContext(summary, true);
-    } catch (error) {
-        console.log(error);
-    } finally {
-        inApiCall = false;
-    }
 }
 
 /**
