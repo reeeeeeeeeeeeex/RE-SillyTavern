@@ -137,6 +137,10 @@ const defaultSettings = {
     maxMessagesPerRequestMin: 0,
     maxMessagesPerRequestMax: 250,
     maxMessagesPerRequestStep: 1,
+    manualSummarizeRange: 0,
+    manualSummarizeRangeMin: 0,
+    manualSummarizeRangeMax: 1000,
+    manualSummarizeRangeStep: 1,
     prompt_builder: prompt_builders.DEFAULT,
 };
 
@@ -182,6 +186,7 @@ function loadSettings() {
     $(`input[name="memory_prompt_builder"][value="${extension_settings.memory.prompt_builder}"]`).prop('checked', true).trigger('input');
     $('#memory_override_response_length').val(extension_settings.memory.overrideResponseLength).trigger('input');
     $('#memory_max_messages_per_request').val(extension_settings.memory.maxMessagesPerRequest).trigger('input');
+    $('#memory_manual_summarize_range').val(extension_settings.memory.manualSummarizeRange).trigger('input');
     $('#memory_include_wi_scan').prop('checked', extension_settings.memory.scan).trigger('input');
     switchSourceControls(extension_settings.memory.source);
 }
@@ -365,6 +370,13 @@ function onMaxMessagesPerRequestInput() {
     const value = $(this).val();
     extension_settings.memory.maxMessagesPerRequest = Number(value);
     $('#memory_max_messages_per_request_value').text(extension_settings.memory.maxMessagesPerRequest);
+    saveSettingsDebounced();
+}
+
+function onManualSummarizeRangeInput() {
+    const value = $(this).val();
+    extension_settings.memory.manualSummarizeRange = Number(value);
+    $('#memory_manual_summarize_range_value').text(extension_settings.memory.manualSummarizeRange);
     saveSettingsDebounced();
 }
 
@@ -643,13 +655,25 @@ async function getSummaryPromptForNow(context, force) {
 
 
 
-function formatFinalSummary(summary, existingSummary) {
+function formatFinalSummary(summary, existingSummary, isFirstManualBatch = false) {
     if (!existingSummary || existingSummary.trim() === '') {
         return `[Stage 1]: ${summary.trim()}`;
     }
     
-    let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
-    return `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
+    if (isFirstManualBatch) {
+        let stages = existingSummary.split(/\n\n(?=\[Stage \d+\]:)/);
+        if (stages.length > 0 && stages[stages.length - 1].startsWith('[Stage ')) {
+            stages.pop(); // Remove the last stage to overwrite it
+            let stageCount = stages.length + 1;
+            stages.push(`[Stage ${stageCount}]: ${summary.trim()}`);
+            return stages.join('\n\n');
+        } else {
+            return `[Stage 1]: ${summary.trim()}`;
+        }
+    } else {
+        let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
+        return `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
+    }
 }
 
 async function summarizeChatCustom(context) {
@@ -657,8 +681,17 @@ async function summarizeChatCustom(context) {
     if (!prompt) return;
 
     let hasMore = true;
+    let explicitStartIndex = null;
+    let isFirstManualBatch = false;
+
+    const manualRange = extension_settings.memory.manualSummarizeRange || 0;
+    if (manualRange > 0) {
+        explicitStartIndex = Math.max(0, context.chat.length - 1 - manualRange);
+        isFirstManualBatch = true;
+    }
+
     while (hasMore) {
-        const { rawPrompt, lastUsedIndex } = await getRawSummaryPrompt(context, prompt);
+        const { rawPrompt, lastUsedIndex } = await getRawSummaryPrompt(context, prompt, explicitStartIndex);
 
         if (lastUsedIndex === null || lastUsedIndex === -1) {
             break;
@@ -699,7 +732,7 @@ async function summarizeChatCustom(context) {
 
             if (summary) {
                 const existingSummary = getLatestMemoryFromChat(context.chat);
-                const finalSummary = formatFinalSummary(summary, existingSummary);
+                const finalSummary = formatFinalSummary(summary, existingSummary, isFirstManualBatch);
                 setMemoryContext(finalSummary, true, lastUsedIndex);
                 console.log('Custom summary generated', summary);
                 
@@ -707,7 +740,8 @@ async function summarizeChatCustom(context) {
                 if (lastUsedIndex >= context.chat.length - 2) {
                     hasMore = false;
                 } else {
-                    // Slight delay before next chunk
+                    explicitStartIndex = lastUsedIndex + 1; // subsequent batches just follow sequentially
+                    isFirstManualBatch = false; // only the first batch overrides the last stage
                     await new Promise(r => setTimeout(r, 1000));
                 }
             } else {
@@ -758,7 +792,7 @@ async function summarizeChatMain(context, force, skipWIAN) {
                 deactivateSendButtons();
             }
 
-            const { rawPrompt, lastUsedIndex } = await getRawSummaryPrompt(context, prompt);
+            const { rawPrompt, lastUsedIndex } = await getRawSummaryPrompt(context, prompt, null);
 
             if (lastUsedIndex === null || lastUsedIndex === -1) {
                 if (force) {
@@ -806,7 +840,7 @@ async function summarizeChatMain(context, force, skipWIAN) {
  * @param {string} prompt Summarization system prompt
  * @returns {Promise<{rawPrompt: string, lastUsedIndex: number}>} Raw summarization prompt
  */
-async function getRawSummaryPrompt(context, prompt) {
+async function getRawSummaryPrompt(context, prompt, explicitStartIndex = null) {
     /**
      * Get the memory string from the chat buffer.
      * @param {boolean} includeSystem Include prompt into the memory string
@@ -1040,6 +1074,7 @@ function setupListeners() {
     $('#memory_prompt_words_auto').off('click').on('click', onPromptForceWordsAutoClick);
     $('#memory_override_response_length').off('input').on('input', onOverrideResponseLengthInput);
     $('#memory_max_messages_per_request').off('input').on('input', onMaxMessagesPerRequestInput);
+    $('#memory_manual_summarize_range').off('input').on('input', onManualSummarizeRangeInput);
     $('#memory_include_wi_scan').off('input').on('input', onMemoryIncludeWIScanInput);
     $('#summarySettingsBlockToggle').off('click').on('click', function () {
         document.getElementById('memory_advanced_modal').showModal();
