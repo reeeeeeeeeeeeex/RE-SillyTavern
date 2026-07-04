@@ -652,25 +652,13 @@ async function getSummaryPromptForNow(context, force) {
 
 
 
-function formatFinalSummary(summary, existingSummary, isFirstManualBatch = false) {
+function formatFinalSummary(summary, existingSummary) {
     if (!existingSummary || existingSummary.trim() === '') {
         return `[Stage 1]: ${summary.trim()}`;
     }
-    
-    if (isFirstManualBatch) {
-        let stages = existingSummary.split(/\n\n(?=\[Stage \d+\]:)/);
-        if (stages.length > 0 && stages[stages.length - 1].startsWith('[Stage ')) {
-            stages.pop(); // Remove the last stage to overwrite it
-            let stageCount = stages.length + 1;
-            stages.push(`[Stage ${stageCount}]: ${summary.trim()}`);
-            return stages.join('\n\n');
-        } else {
-            return `[Stage 1]: ${summary.trim()}`;
-        }
-    } else {
-        let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
-        return `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
-    }
+
+    const stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
+    return `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
 }
 
 /**
@@ -780,12 +768,10 @@ async function summarizeChatCustom(context, force = false) {
     const systemPrompt = buildSummarySystemPrompt(basePrompt, wiText);
 
     let explicitStartIndex = null;
-    let isFirstManualBatch = false;
 
     const manualRange = extension_settings.memory.manualSummarizeRange || 0;
     if (manualRange > 0) {
         explicitStartIndex = Math.max(0, context.chat.length - 1 - manualRange);
-        isFirstManualBatch = true;
     }
 
     const windowStart = explicitStartIndex !== null
@@ -799,6 +785,7 @@ async function summarizeChatCustom(context, force = false) {
 
     while (true) {
         const previousSummariesText = buildPreviousSummariesSection();
+        const existingSummary = String($('#memory_contents').val() || '').trim();
 
         const { rawPrompt, lastUsedIndex, messageCount } = await getRawSummaryPrompt(
             context,
@@ -828,8 +815,7 @@ async function summarizeChatCustom(context, force = false) {
             ];
             const summary = await sendMemoryCustomApiRequest(messages);
 
-            const existingSummary = getLatestMemoryFromChat(context.chat);
-            const finalSummary = formatFinalSummary(summary, existingSummary, isFirstManualBatch);
+            const finalSummary = formatFinalSummary(summary, existingSummary);
             setMemoryContext(finalSummary, true, lastUsedIndex);
             console.log('[Memory Custom] Summary generated', summary);
 
@@ -840,7 +826,6 @@ async function summarizeChatCustom(context, force = false) {
 
             // Advance the cumulative window; next batch starts from the same place and includes more messages.
             currentEndIndex = lastUsedIndex + batchSize;
-            isFirstManualBatch = false;
             await new Promise(r => setTimeout(r, 1000));
         } catch (e) {
             console.error(e);
@@ -865,12 +850,10 @@ async function summarizeChatMain(context, force) {
     console.log('sending summary prompt');
 
     let explicitStartIndex = null;
-    let isFirstManualBatch = false;
 
     const manualRange = extension_settings.memory.manualSummarizeRange || 0;
     if (manualRange > 0) {
         explicitStartIndex = Math.max(0, context.chat.length - 1 - manualRange);
-        isFirstManualBatch = true;
     }
 
     const windowStart = explicitStartIndex !== null
@@ -889,6 +872,7 @@ async function summarizeChatMain(context, force) {
             || extension_settings.memory.prompt_builder === prompt_builders.DEFAULT;
 
         const previousSummariesText = buildPreviousSummariesSection();
+        const existingSummary = String($('#memory_contents').val() || '').trim();
 
         try {
             inApiCall = true;
@@ -905,7 +889,7 @@ async function summarizeChatMain(context, force) {
             );
 
             if (lastUsedIndex === null || lastUsedIndex === -1 || messageCount === 0) {
-                if (force && !isFirstManualBatch) {
+                if (force && previousSummariesText.trim() !== '') {
                     toastr.info('To try again, remove the latest summary.', 'No messages found to summarize');
                 }
                 break;
@@ -944,8 +928,7 @@ async function summarizeChatMain(context, force) {
             if (isContextChanged(context)) {
                 break;
             }
-            const existingSummary = getLatestMemoryFromChat(context.chat);
-            const finalSummary = formatFinalSummary(summary, existingSummary, isFirstManualBatch);
+            const finalSummary = formatFinalSummary(summary, existingSummary);
             setMemoryContext(finalSummary, true, index);
 
             if (index >= context.chat.length - 2) {
@@ -953,7 +936,6 @@ async function summarizeChatMain(context, force) {
             }
 
             currentEndIndex = index + batchSize;
-            isFirstManualBatch = false;
             await new Promise(r => setTimeout(r, 1000));
         } else {
             break;
