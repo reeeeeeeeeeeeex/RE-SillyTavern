@@ -62,13 +62,11 @@ async function countSourceTokens(text, padding = 0) {
 async function getSourceContextSize() {
     const overrideLength = extension_settings.memory.overrideResponseLength;
 
-    if (extension_settings.memory.source === summary_sources.webllm) {
-        const maxContext = await getWebLlmContextSize();
+    if (extension_settings.memory.source === 'custom') {
+        // Custom APIs are decoupled from the Main API's context constraints.
+        // We assume a generous 8192 max context for modern LLMs unless overriden.
+        const maxContext = 8192;
         return overrideLength > 0 ? (maxContext - overrideLength) : Math.round(maxContext * 0.75);
-    }
-
-    if (extension_settings.source === summary_sources.extras) {
-        return 1024 - 64;
     }
 
     return getMaxPromptTokens(overrideLength);
