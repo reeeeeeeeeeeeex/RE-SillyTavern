@@ -732,7 +732,9 @@ export function parseExampleIntoIndividual(messageExampleString, appendNamesForG
         // join different newlines (we split them by \n and join by \n)
         // remove char name
         // strip to remove extra spaces
-        let parsed_msg = cur_msg_lines.join('\n').replace(name + ':', '').trim();
+        // Helper to escape regex since escapeRegex isn't imported here
+        const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let parsed_msg = cur_msg_lines.join('\n').replace(new RegExp('^' + escapeRegExp(name) + '\\s*[:：]\\s*', 'i'), '').trim();
 
         if (appendNamesForGroup && selected_group && ['example_user', 'example_assistant'].includes(system_name)) {
             parsed_msg = `${name}: ${parsed_msg}`;

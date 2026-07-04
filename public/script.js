@@ -6512,9 +6512,12 @@ export function cleanUpMessage({ getMessage, isImpersonate, isContinue, displayI
             ? (!power_user.allow_name1_display ? name1 : '')  // user
             : (!power_user.allow_name2_display ? name2 : '');  // char
 
-        if (nameToTrim2 && getMessage.startsWith(nameToTrim2 + ':')) {
-            getMessage = getMessage.replace(nameToTrim2 + ':', '');
-            getMessage = getMessage.trimStart();
+        if (nameToTrim2) {
+            const nameRegex = new RegExp('^' + escapeRegex(nameToTrim2) + '\\s*[:：]\\s*', 'i');
+            if (nameRegex.test(getMessage)) {
+                getMessage = getMessage.replace(nameRegex, '');
+                getMessage = getMessage.trimStart();
+            }
         }
     }
 

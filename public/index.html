@@ -261,7 +261,8 @@
                                         <label class="checkbox_label" for="streaming_textgenerationwebui">
                                             <input type="checkbox" id="streaming_textgenerationwebui">
                                             <small><span data-i18n="Streaming">Streaming</span>
-                                                <div class="margin5 fa-solid fa-circle-info opacity50p" data-i18n="[title]Streaming_desc" title="Display the response bit by bit as it is generated.When this is off, responses will be displayed all at once when they are complete."></div>
+                                                <div class="margin5 fa-solid fa-circle-info opacity50p" data-i18n="[title]Streaming_desc" title="Display the response bit by bit as it is generated.
+When this is off, responses will be displayed all at once when they are complete."></div>
                                             </small>
                                         </label>
                                     </div>
@@ -269,7 +270,8 @@
                                         <label class="checkbox_label" for="streaming_kobold">
                                             <input type="checkbox" id="streaming_kobold">
                                             <small><span data-i18n="Streaming">Streaming</span>
-                                                <div class="margin5 fa-solid fa-circle-info opacity50p" data-i18n="[title]Streaming_desc" title="Display the response bit by bit as it is generated.When this is off, responses will be displayed all at once when they are complete."></div>
+                                                <div class="margin5 fa-solid fa-circle-info opacity50p" data-i18n="[title]Streaming_desc" title="Display the response bit by bit as it is generated.
+When this is off, responses will be displayed all at once when they are complete."></div>
                                             </small>
                                         </label>
                                     </div>
@@ -277,7 +279,8 @@
                                         <label class="checkbox_label" for="streaming_novel">
                                             <input type="checkbox" id="streaming_novel">
                                             <small><span data-i18n="Streaming">Streaming</span>
-                                                <div class="margin5 fa-solid fa-circle-info opacity50p" data-i18n="[title]Streaming_desc" title="Display the response bit by bit as it is generated.When this is off, responses will be displayed all at once when they are complete."></div>
+                                                <div class="margin5 fa-solid fa-circle-info opacity50p" data-i18n="[title]Streaming_desc" title="Display the response bit by bit as it is generated.
+When this is off, responses will be displayed all at once when they are complete."></div>
                                             </small>
                                         </label>
                                     </div>
@@ -292,7 +295,8 @@
                                         <label class="checkbox_label">
                                             <input id="max_context_unlocked" type="checkbox">
                                             <small><span data-i18n="unlocked">Unlocked</span>
-                                                <div id="max_context_unlocked_warning" class="fa-solid fa-circle-info opacity50p " data-i18n="[title]Only enable this if your model supports context sizes greater than 8192 tokens" title="Only enable this if your model supports context sizes greater than 8192 tokens.Increase only if you know what you're doing."></div>
+                                                <div id="max_context_unlocked_warning" class="fa-solid fa-circle-info opacity50p " data-i18n="[title]Only enable this if your model supports context sizes greater than 8192 tokens" title="Only enable this if your model supports context sizes greater than 8192 tokens.
+Increase only if you know what you're doing."></div>
                                             </small>
                                         </label>
                                     </div>
@@ -1004,7 +1008,10 @@ some text
                                     <div class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Temperature">Temperature</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Temperature controls the randomness in token selection" title="Temperature controls the randomness in token selection:- low temperature (<1.0) leads to more predictable text, favoring higher probability tokens.- high temperature (>1.0) increases creativity and diversity in the output by giving lower probability tokens a better chance.Set to 1.0 for the original probabilities."></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Temperature controls the randomness in token selection" title="Temperature controls the randomness in token selection:
+- low temperature (<1.0) leads to more predictable text, favoring higher probability tokens.
+- high temperature (>1.0) increases creativity and diversity in the output by giving lower probability tokens a better chance.
+Set to 1.0 for the original probabilities."></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="temp" name="volume" min="0.0" max="4.0" step="0.01">
                                         <input class="neo-range-input" type="number" min="0.0" max="4.0" step="0.01" data-for="temp" id="temp_counter">
@@ -1012,7 +1019,9 @@ some text
                                     <div class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Top K">Top K</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Top K sets a maximum amount of top tokens that can be chosen from.E.g Top K is 20, this means only the 20 highest ranking tokens will be kept (regardless of their probabilities being diverse or limited).Set to 0 to disable." data-i18n="[title]Top_K_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Top K sets a maximum amount of top tokens that can be chosen from.
+E.g Top K is 20, this means only the 20 highest ranking tokens will be kept (regardless of their probabilities being diverse or limited).
+Set to 0 to disable." data-i18n="[title]Top_K_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="top_k" name="volume" min="0" max="100" step="1">
                                         <input class="neo-range-input" type="number" min="0" max="100" step="1" data-for="top_k" id="top_k_counter">
@@ -1020,7 +1029,9 @@ some text
                                     <div class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             Top P
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Top P (a.k.a. nucleus sampling) adds up all the top tokens required to add up to the target percentage.E.g If the Top 2 tokens are both 25%, and Top P is 0.50, only the Top 2 tokens are considered.Set to 1.0 to disable." data-i18n="[title]Top_P_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Top P (a.k.a. nucleus sampling) adds up all the top tokens required to add up to the target percentage.
+E.g If the Top 2 tokens are both 25%, and Top P is 0.50, only the Top 2 tokens are considered.
+Set to 1.0 to disable." data-i18n="[title]Top_P_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="top_p" name="volume" min="0" max="1" step="0.01">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.01" data-for="top_p" id="top_p_counter">
@@ -1028,7 +1039,9 @@ some text
                                     <div class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Typical P">Typical P</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Typical P Sampling prioritizes tokens based on their deviation from the average entropy of the set.It maintains tokens whose cumulative probability is close to a predefined threshold (e.g., 0.5), emphasizing those with average information content.Set to 1.0 to disable." data-i18n="[title]Typical_P_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Typical P Sampling prioritizes tokens based on their deviation from the average entropy of the set.
+It maintains tokens whose cumulative probability is close to a predefined threshold (e.g., 0.5), emphasizing those with average information content.
+Set to 1.0 to disable." data-i18n="[title]Typical_P_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="typical_p" name="volume" min="0" max="1" step="0.001">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.001" data-for="typical_p" id="typical_p_counter">
@@ -1036,7 +1049,10 @@ some text
                                     <div class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Min P">Min P</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Min P sets a base minimum probability.This is scaled according to the top token's probability.E.g If Top token is 80% probability, and Min P is 0.1, only tokens higher than 8% would be considered.Set to 0 to disable." data-i18n="[title]Min_P_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Min P sets a base minimum probability.
+This is scaled according to the top token's probability.
+E.g If Top token is 80% probability, and Min P is 0.1, only tokens higher than 8% would be considered.
+Set to 0 to disable." data-i18n="[title]Min_P_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="min_p" name="volume" min="0" max="1" step="0.001">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.001" data-for="min_p" id="min_p_counter">
@@ -1044,7 +1060,9 @@ some text
                                     <div class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Top A">Top A</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Top A sets a threshold for token selection based on the square of the highest token probability.E.g if the Top-A value is 0.2 and the top token's probability is 50%, tokens with probabilities below 5% (0.2 * 0.5^2) are excluded.Set to 0 to disable." data-i18n="[title]Top_A_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Top A sets a threshold for token selection based on the square of the highest token probability.
+E.g if the Top-A value is 0.2 and the top token's probability is 50%, tokens with probabilities below 5% (0.2 * 0.5^2) are excluded.
+Set to 0 to disable." data-i18n="[title]Top_A_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="top_a" name="volume" min="0" max="1" step="0.001">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.001" data-for="top_a" id="top_a_counter">
@@ -1052,7 +1070,9 @@ some text
                                     <div class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="TFS">TFS</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Tail-Free Sampling (TFS) searches for a tail of low-probability tokens in the distribution,by analyzing the rate of change in token probabilities using derivatives. It retains tokens up to a threshold (e.g., 0.3) based on the normalized second derivative.The closer to 0, the more discarded tokens. Set to 1.0 to disable." data-i18n="[title]Tail_Free_Sampling_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Tail-Free Sampling (TFS) searches for a tail of low-probability tokens in the distribution,
+by analyzing the rate of change in token probabilities using derivatives. It retains tokens up to a threshold (e.g., 0.3) based on the normalized second derivative.
+The closer to 0, the more discarded tokens. Set to 1.0 to disable." data-i18n="[title]Tail_Free_Sampling_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="tfs" name="volume" min="0" max="1" step="0.001">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.001" data-for="tfs" id="tfs_counter">
@@ -1113,7 +1133,8 @@ some text
                                             <input id="use_default_badwordsids" type="checkbox">
                                             <span>
                                                 <span data-i18n="Ban EOS Token">Ban EOS Token</span>
-                                                <small class="fa-solid fa-circle-info opacity50p" title="Ban the End-of-Sequence (EOS) token with KoboldCpp (and possibly also other tokens with KoboldAI).Good for story writing, but should not be used for chat and instruct mode." data-i18n="[title]Ban_EOS_Token_desc"></small>
+                                                <small class="fa-solid fa-circle-info opacity50p" title="Ban the End-of-Sequence (EOS) token with KoboldCpp (and possibly also other tokens with KoboldAI).
+Good for story writing, but should not be used for chat and instruct mode." data-i18n="[title]Ban_EOS_Token_desc"></small>
                                             </span>
                                         </label>
                                     </div>
@@ -1257,7 +1278,10 @@ some text
                                     <div data-tg-samplers="temp" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Temperature">Temperature</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Temperature controls the randomness in token selection" title="Temperature controls the randomness in token selection:- low temperature (<1.0) leads to more predictable text, favoring higher probability tokens.- high temperature (>1.0) increases creativity and diversity in the output by giving lower probability tokens a better chance.Set to 1.0 for the original probabilities."></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Temperature controls the randomness in token selection" title="Temperature controls the randomness in token selection:
+- low temperature (<1.0) leads to more predictable text, favoring higher probability tokens.
+- high temperature (>1.0) increases creativity and diversity in the output by giving lower probability tokens a better chance.
+Set to 1.0 for the original probabilities."></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="temp_textgenerationwebui" name="volume" min="0.0" max="5.0" step="0.01" x-setting-id="temp">
                                         <input class="neo-range-input" type="number" min="0.0" max="5.0" step="0.01" data-for="temp_textgenerationwebui" id="temp_counter_textgenerationwebui">
@@ -1266,7 +1290,9 @@ some text
                                     <div data-tg-type-mode="except" data-tg-type="generic" data-tg-samplers="top_k" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Top K">Top K</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Top K sets a maximum amount of top tokens that can be chosen from.E.g Top K is 20, this means only the 20 highest ranking tokens will be kept (regardless of their probabilities being diverse or limited).Set to 0 (or -1, depending on your backend) to disable." data-i18n="[title]Top_K_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Top K sets a maximum amount of top tokens that can be chosen from.
+E.g Top K is 20, this means only the 20 highest ranking tokens will be kept (regardless of their probabilities being diverse or limited).
+Set to 0 (or -1, depending on your backend) to disable." data-i18n="[title]Top_K_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="top_k_textgenerationwebui" name="volume" min="-1" max="500" step="1">
                                         <input class="neo-range-input" type="number" min="-1" max="500" step="1" data-for="top_k_textgenerationwebui" id="top_k_counter_textgenerationwebui">
@@ -1274,7 +1300,9 @@ some text
                                     <div data-tg-samplers="top_p" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Top P">Top P</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Top P (a.k.a. nucleus sampling) adds up all the top tokens required to add up to the target percentage.E.g If the Top 2 tokens are both 25%, and Top P is 0.50, only the Top 2 tokens are considered.Set to 1.0 to disable." data-i18n="[title]Top_P_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Top P (a.k.a. nucleus sampling) adds up all the top tokens required to add up to the target percentage.
+E.g If the Top 2 tokens are both 25%, and Top P is 0.50, only the Top 2 tokens are considered.
+Set to 1.0 to disable." data-i18n="[title]Top_P_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="top_p_textgenerationwebui" name="volume" min="0" max="1" step="0.01">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.01" data-for="top_p_textgenerationwebui" id="top_p_counter_textgenerationwebui">
@@ -1282,7 +1310,9 @@ some text
                                     <div data-tg-type-mode="except" data-tg-type="generic" data-tg-samplers="typical_p" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Typical P">Typical P</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Typical P Sampling prioritizes tokens based on their deviation from the average entropy of the set.It maintains tokens whose cumulative probability is close to a predefined threshold (e.g., 0.5), emphasizing those with average information content.Set to 1.0 to disable." data-i18n="[title]Typical_P_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Typical P Sampling prioritizes tokens based on their deviation from the average entropy of the set.
+It maintains tokens whose cumulative probability is close to a predefined threshold (e.g., 0.5), emphasizing those with average information content.
+Set to 1.0 to disable." data-i18n="[title]Typical_P_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="typical_p_textgenerationwebui" name="volume" min="0" max="1" step="0.01">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.01" data-for="typical_p_textgenerationwebui" id="typical_p_counter_textgenerationwebui">
@@ -1290,7 +1320,9 @@ some text
                                     <div data-tg-type-mode="except" data-tg-type="generic" data-tg-samplers="min_p" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Min P">Min P</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Min_P_desc" title="Min P sets a base minimum probability. This is scaled according to the top token's probability.E.g If Top token is 80% probability, and Min P is 0.1, only tokens higher than 8% would be considered.Set to 0 to disable."></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Min_P_desc" title="Min P sets a base minimum probability. This is scaled according to the top token's probability.
+E.g If Top token is 80% probability, and Min P is 0.1, only tokens higher than 8% would be considered.
+Set to 0 to disable."></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="min_p_textgenerationwebui" name="volume" min="0" max="1" step="0.001">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.001" data-for="min_p_textgenerationwebui" id="min_p_counter_textgenerationwebui">
@@ -1298,7 +1330,9 @@ some text
                                     <div data-tg-type-mode="except" data-tg-type="generic,llamacpp" data-tg-samplers="top_a" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Top A">Top A</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" title="Top A sets a threshold for token selection based on the square of the highest token probability.E.g if the Top-A value is 0.2 and the top token's probability is 50%, tokens with probabilities below 5% (0.2 * 0.5^2) are excluded.Set to 0 to disable." data-i18n="[title]Top_A_desc"></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" title="Top A sets a threshold for token selection based on the square of the highest token probability.
+E.g if the Top-A value is 0.2 and the top token's probability is 50%, tokens with probabilities below 5% (0.2 * 0.5^2) are excluded.
+Set to 0 to disable." data-i18n="[title]Top_A_desc"></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="top_a_textgenerationwebui" name="volume" min="0" max="1" step="0.01">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.01" data-for="top_a_textgenerationwebui" id="top_a_counter_textgenerationwebui">
@@ -1306,7 +1340,9 @@ some text
                                     <div data-tg-type-mode="except" data-tg-type="generic,llamacpp" data-tg-samplers="tfs" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="TFS">TFS</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Tail_Free_Sampling_desc" title="Tail-Free Sampling (TFS) searches for a tail of low-probability tokens in the distribution,by analyzing the rate of change in token probabilities using derivatives. It retains tokens up to a threshold (e.g., 0.3) based on the normalized second derivative.The closer to 0, the more discarded tokens. Set to 1.0 to disable."></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Tail_Free_Sampling_desc" title="Tail-Free Sampling (TFS) searches for a tail of low-probability tokens in the distribution,
+by analyzing the rate of change in token probabilities using derivatives. It retains tokens up to a threshold (e.g., 0.3) based on the normalized second derivative.
+The closer to 0, the more discarded tokens. Set to 1.0 to disable."></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="tfs_textgenerationwebui" name="volume" min="0" max="1" step="0.001">
                                         <input class="neo-range-input" type="number" min="0" max="1" step="0.001" data-for="tfs_textgenerationwebui" id="tfs_counter_textgenerationwebui">
@@ -1314,7 +1350,9 @@ some text
                                     <div data-tg-type="ooba,mancer,aphrodite" data-tg-samplers="epsilon_cutoff" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Epsilon Cutoff">Epsilon Cutoff</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Epsilon cutoff sets a probability floor below which tokens are excluded from being sampled" title="Epsilon cutoff sets a probability floor below which tokens are excluded from being sampled.In units of 1e-4; a reasonable value is 3.Set to 0 to disable."></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Epsilon cutoff sets a probability floor below which tokens are excluded from being sampled" title="Epsilon cutoff sets a probability floor below which tokens are excluded from being sampled.
+In units of 1e-4; a reasonable value is 3.
+Set to 0 to disable."></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="epsilon_cutoff_textgenerationwebui" name="volume" min="0" max="9" step="0.01">
                                         <input class="neo-range-input" type="number" min="0" max="9" step="0.01" data-for="epsilon_cutoff_textgenerationwebui" id="epsilon_cutoff_counter_textgenerationwebui">
@@ -1338,7 +1376,10 @@ some text
                                     <div data-tg-type="ooba,mancer,aphrodite" data-tg-samplers="eta_cutoff" class="alignitemscenter flex-container flexFlowColumn flexBasis30p flexGrow flexShrink gap0">
                                         <small>
                                             <span data-i18n="Eta Cutoff">Eta Cutoff</span>
-                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Eta_Cutoff_desc" title="Eta cutoff is the main parameter of the special Eta Sampling technique.In units of 1e-4; a reasonable value is 3.Set to 0 to disable.See the paper Truncation Sampling as Language Model Desmoothing by Hewitt et al. (2022) for details."></div>
+                                            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Eta_Cutoff_desc" title="Eta cutoff is the main parameter of the special Eta Sampling technique.
+In units of 1e-4; a reasonable value is 3.
+Set to 0 to disable.
+See the paper Truncation Sampling as Language Model Desmoothing by Hewitt et al. (2022) for details."></div>
                                         </small>
                                         <input class="neo-range-slider" type="range" id="eta_cutoff_textgenerationwebui" name="volume" min="0" max="20" step="0.01">
                                         <input class="neo-range-input" type="number" min="0" max="20" step="0.01" data-for="eta_cutoff_textgenerationwebui" id="eta_cutoff_counter_textgenerationwebui">
@@ -1527,7 +1568,14 @@ some text
                                     <div data-tg-type="ooba,infermaticai,koboldcpp,llamacpp,tabby" data-tg-samplers="mirostat_mode" id="mirostat_block_ooba" class="wide100p">
                                         <h4 class="wide100p textAlignCenter">
                                             <label data-i18n="Mirostat (mode=1 is only for llama.cpp)">Mirostat</label>
-                                            <div class=" fa-solid fa-circle-info opacity50p " data-i18n="[title]Mirostat_desc" title="Mirostat is a thermostat for output perplexity.Mirostat matches the output perplexity to that of the input, thus avoiding the repetition trap(where, as the autoregressive inference produces text, the perplexity of the output tends toward zero)and the confusion trap (where the perplexity diverges).For details, see the paper Mirostat: A Neural Text Decoding Algorithm that Directly Controls Perplexity by Basu et al. (2020).Mode chooses the Mirostat version. 0=disable, 1=Mirostat 1.0 (llama.cpp only), 2=Mirostat 2.0.Tau = Variability parameter for Mirostat outputs.Eta = Learning rate of Mirostat."></div>
+                                            <div class=" fa-solid fa-circle-info opacity50p " data-i18n="[title]Mirostat_desc" title="Mirostat is a thermostat for output perplexity.
+Mirostat matches the output perplexity to that of the input, thus avoiding the repetition trap
+(where, as the autoregressive inference produces text, the perplexity of the output tends toward zero)
+and the confusion trap (where the perplexity diverges).
+For details, see the paper Mirostat: A Neural Text Decoding Algorithm that Directly Controls Perplexity by Basu et al. (2020).
+Mode chooses the Mirostat version. 0=disable, 1=Mirostat 1.0 (llama.cpp only), 2=Mirostat 2.0.
+Tau = Variability parameter for Mirostat outputs.
+Eta = Learning rate of Mirostat."></div>
                                         </h4>
                                         <div class="flex-container flexFlowRow gap10px flexShrink">
                                             <div class="alignitemscenter flex-container marginBot5 flexFlowColumn flexGrow flexShrink gap0">
@@ -1626,12 +1674,16 @@ some text
                                             <label data-tg-type="ooba, aphrodite, tabby" data-tg-samplers="temperature_last" class="checkbox_label  flexGrow flexShrink" for="temperature_last_textgenerationwebui">
                                                 <input type="checkbox" id="temperature_last_textgenerationwebui">
                                                 <small data-i18n="Temperature Last">Temperature Last</small>
-                                                <div class="fa-solid fa-circle-info opacity50p " data-i18n="[title]Temperature_Last_desc" title="Use the temperature sampler last. This is almost always the sensible thing to do.When enabled: sample the set of plausible tokens first, then apply temperature to adjust their relative probabilities (technically, logits).When disabled: apply temperature to adjust the relative probabilities of ALL tokens first, then sample plausible tokens from that.Disabling Temperature Last boosts the probabilities in the tail of the distribution, which tends to amplify the chances of getting an incoherent response."></div>
+                                                <div class="fa-solid fa-circle-info opacity50p " data-i18n="[title]Temperature_Last_desc" title="Use the temperature sampler last. This is almost always the sensible thing to do.
+When enabled: sample the set of plausible tokens first, then apply temperature to adjust their relative probabilities (technically, logits).
+When disabled: apply temperature to adjust the relative probabilities of ALL tokens first, then sample plausible tokens from that.
+Disabling Temperature Last boosts the probabilities in the tail of the distribution, which tends to amplify the chances of getting an incoherent response."></div>
                                             </label>
                                             <label data-tg-type="tabby" data-tg-samplers="speculative_ngram" class="checkbox_label  flexGrow flexShrink" for="speculative_ngram_textgenerationwebui">
                                                 <input type="checkbox" id="speculative_ngram_textgenerationwebui">
                                                 <small data-i18n="Speculative Ngram">Speculative Ngram</small>
-                                                <div class="fa-solid fa-circle-info opacity50p " data-i18n="[title]Use a different speculative decoding method without a draft model" title="Use a different speculative decoding method without a draft model.Using a draft model is preferred. Speculative ngram is not as effective."></div>
+                                                <div class="fa-solid fa-circle-info opacity50p " data-i18n="[title]Use a different speculative decoding method without a draft model" title="Use a different speculative decoding method without a draft model.
+Using a draft model is preferred. Speculative ngram is not as effective."></div>
                                             </label>
                                             <label data-tg-type="vllm, aphrodite, infermaticai" data-tg-samplers="spaces_between_special_tokens" class="checkbox_label" for="spaces_between_special_tokens_textgenerationwebui">
                                                 <input type="checkbox" id="spaces_between_special_tokens_textgenerationwebui">
@@ -1651,7 +1703,12 @@ some text
                                         <div class="range-block-title title_restorable">
                                             <div>
                                                 <strong data-i18n="Banned Tokens">Banned Tokens/Strings</strong>
-                                                <div class="margin5 fa-solid fa-circle-info opacity50p " data-i18n="[title]LLaMA / Mistral / Yi models only" title="Enter sequences you don't want to appear in the output.Unquoted text will be tokenized in the back end and banned as tokens.[token ids] will be banned as-is.Most tokens have a leading space. Use token counter (with the correct tokenizer selected first!) if you are unsure.Enclose text in double quotes to ban the entire string as a set.Quoted Strings and [Token ids] must be on their own line."></div>
+                                                <div class="margin5 fa-solid fa-circle-info opacity50p " data-i18n="[title]LLaMA / Mistral / Yi models only" title="Enter sequences you don't want to appear in the output.
+Unquoted text will be tokenized in the back end and banned as tokens.
+[token ids] will be banned as-is.
+Most tokens have a leading space. Use token counter (with the correct tokenizer selected first!) if you are unsure.
+Enclose text in double quotes to ban the entire string as a set.
+Quoted Strings and [Token ids] must be on their own line."></div>
                                             </div>
                                             <label data-tg-samplers="send_banned_tokens" id="send_banned_tokens_label" for="send_banned_tokens_textgenerationwebui" class="checkbox_label">
                                                 <input id="send_banned_tokens_textgenerationwebui" type="checkbox" style="display:none;">
@@ -5896,7 +5953,11 @@ Shift/Alt-click or long-press to open 'Link to Chat Lorebook' popup" data-i18n="
                                             <div class="flex1 flexGap5" title="Inserted before each part of the joined fields." data-i18n="[title]Inserted before each part of the joined fields.">
                                                 <label for="rm_group_generation_mode_join_prefix" class="flexnowrap width100p whitespacenowrap">
                                                     <span data-i18n="Join Prefix">Join Prefix</span>
-                                                    <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]When 'Join character cards' is selected, all respective fields of the characters are being joined together.This means that in the story string for example all character descriptions will be joined to one big text.If you want those fields to be separated, you can define a prefix or suffix here.This value supports normal macros and will also replace {{char}} with the relevant char's name and <FIELDNAME> with the name of the part (e.g.: description, personality, scenario, etc.)" title="When 'Join character cards' is selected, all respective fields of the characters are being joined together.This means that in the story string for example all character descriptions will be joined to one big text.If you want those fields to be separated, you can define a prefix or suffix here.This value supports normal macros and will also replace {{char}} with the relevant char's name and <FIELDNAME> with the name of the part (e.g.: description, personality, scenario, etc.)">
+                                                    <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]When 'Join character cards' is selected, all respective fields of the characters are being joined together.This means that in the story string for example all character descriptions will be joined to one big text.If you want those fields to be separated, you can define a prefix or suffix here.This value supports normal macros and will also replace {{char}} with the relevant char's name and <FIELDNAME> with the name of the part (e.g.: description, personality, scenario, etc.)" title="When 'Join character cards' is selected, all respective fields of the characters are being joined together.
+This means that in the story string for example all character descriptions will be joined to one big text.
+If you want those fields to be separated, you can define a prefix or suffix here.
+
+This value supports normal macros and will also replace {{char}} with the relevant char's name and <FIELDNAME> with the name of the part (e.g.: description, personality, scenario, etc.)">
                                                     </div>
                                                 </label>
                                                 <textarea id="rm_group_generation_mode_join_prefix" class="text_pole wide100p textarea_compact autoSetHeight" placeholder="—" rows="1"></textarea>
@@ -5904,7 +5965,11 @@ Shift/Alt-click or long-press to open 'Link to Chat Lorebook' popup" data-i18n="
                                             <div class="flex1 flexGap5" title="Inserted after each part of the joined fields." data-i18n="[title]Inserted after each part of the joined fields.">
                                                 <label for="rm_group_generation_mode_join_suffix" class="flexnowrap width100p whitespacenowrap">
                                                     <span data-i18n="Join Suffix">Join Suffix</span>
-                                                    <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]When 'Join character cards' is selected, all respective fields of the characters are being joined together.This means that in the story string for example all character descriptions will be joined to one big text.If you want those fields to be separated, you can define a prefix or suffix here.This value supports normal macros and will also replace {{char}} with the relevant char's name and <FIELDNAME> with the name of the part (e.g.: description, personality, scenario, etc.)" title="When 'Join character cards' is selected, all respective fields of the characters are being joined together.This means that in the story string for example all character descriptions will be joined to one big text.If you want those fields to be separated, you can define a prefix or suffix here.This value supports normal macros and will also replace {{char}} with the relevant char's name and <FIELDNAME> with the name of the part (e.g.: description, personality, scenario, etc.)">
+                                                    <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]When 'Join character cards' is selected, all respective fields of the characters are being joined together.This means that in the story string for example all character descriptions will be joined to one big text.If you want those fields to be separated, you can define a prefix or suffix here.This value supports normal macros and will also replace {{char}} with the relevant char's name and <FIELDNAME> with the name of the part (e.g.: description, personality, scenario, etc.)" title="When 'Join character cards' is selected, all respective fields of the characters are being joined together.
+This means that in the story string for example all character descriptions will be joined to one big text.
+If you want those fields to be separated, you can define a prefix or suffix here.
+
+This value supports normal macros and will also replace {{char}} with the relevant char's name and <FIELDNAME> with the name of the part (e.g.: description, personality, scenario, etc.)">
                                                     </div>
                                                 </label>
                                                 <textarea id="rm_group_generation_mode_join_suffix" class="text_pole wide100p textarea_compact autoSetHeight" placeholder="—" rows="1"></textarea>
@@ -6023,7 +6088,11 @@ Shift/Alt-click or long-press to open 'Link to Chat Lorebook' popup" data-i18n="
 
                         <div id="rm_print_characters_pagination">
                             <i id="charListGridToggle" class="fa-solid fa-table-cells-large menu_button" title="Toggle character grid view" data-i18n="[title]Toggle character grid view"></i>
-                            <i id="bulkEditButton" class="fa-solid fa-edit menu_button bulkEditButton" title="Bulk edit charactersClick to toggle charactersShift + Click to select/deselect a range of charactersRight-click for actions" data-i18n="[title]Bulk_edit_characters"></i>
+                            <i id="bulkEditButton" class="fa-solid fa-edit menu_button bulkEditButton" title="Bulk edit characters
+
+Click to toggle characters
+Shift + Click to select/deselect a range of characters
+Right-click for actions" data-i18n="[title]Bulk_edit_characters"></i>
                             <div id="bulkSelectedCount" class="bulkEditOptionElement paginationjs-nav"></div>
                             <i id="bulkSelectAllButton" class="fa-solid fa-check-double menu_button bulkEditOptionElement bulkSelectAllButton" title="Bulk select all characters" data-i18n="[title]Bulk select all characters" style="display: none;"></i>
                             <i id="bulkDeleteButton" class="fa-solid fa-trash menu_button bulkEditOptionElement bulkDeleteButton" title="Bulk delete characters" data-i18n="[title]Bulk delete characters" style="display: none;"></i>
@@ -6520,7 +6589,13 @@ Add {{outlet::YourName}} to the prompt in any place you want to add all WI entri
                             <small class="textAlignCenter" data-i18n="Automation ID">Automation ID</small>
                             <input class="text_pole margin0" name="automationId" type="text" placeholder="( None )" data-i18n="[placeholder]( None )">
                         </div>
-                        <div class="world_entry_form_control flex1" title="Defines delay levels for recursive scans.Initially, only the first level (smallest number) will match.Once no matches are found, the next level becomes eligible for matching.This repeats until all levels are checked.Tied to the &quot;Delay until recursion&quot; setting." data-i18n="[title]delay_until_recursion_level">
+                        <div class="world_entry_form_control flex1" title="Defines delay levels for recursive scans.
+
+Initially, only the first level (smallest number) will match.
+Once no matches are found, the next level becomes eligible for matching.
+This repeats until all levels are checked.
+
+Tied to the &quot;Delay until recursion&quot; setting." data-i18n="[title]delay_until_recursion_level">
                             <small class="textAlignCenter">
                                 <span data-i18n="Recursion Level">Recursion Level</span>
                                 <div class="fa-solid fa-circle-info opacity50p"></div>
@@ -6592,14 +6667,19 @@ Add {{outlet::YourName}} to the prompt in any place you want to add all WI entri
                         <div class="flex-container justifySpaceBetween">
                             <small for="group">
                                 <span data-i18n="Inclusion Group">Inclusion Group</span>
-                                <a href="https://docs.sillytavern.app/usage/core-concepts/worldinfo/#inclusion-group" class="notes-link" target="_blank" title="Inclusion Groups ensure only one entry from a group is activated at a time, if multiple are triggered.Supports multiple comma-separated groups.Documentation: World Info - Inclusion Group" data-i18n="[title]Inclusion Groups ensure only one entry from a group is activated at a time, if multiple are triggered.Documentation: World Info - Inclusion Group">
+                                <a href="https://docs.sillytavern.app/usage/core-concepts/worldinfo/#inclusion-group" class="notes-link" target="_blank" title="Inclusion Groups ensure only one entry from a group is activated at a time, if multiple are triggered.
+Supports multiple comma-separated groups.
+
+Documentation: World Info - Inclusion Group" data-i18n="[title]Inclusion Groups ensure only one entry from a group is activated at a time, if multiple are triggered.Documentation: World Info - Inclusion Group">
                                     <span class="fa-solid fa-circle-question note-link-span"></span>
                                 </a>
                             </small>
                             <label class="checkbox_label flexNoGap margin-r5" for="groupOverride">
                                 <input type="checkbox" name="groupOverride">
                                 <span>
-                                    <small title="Prioritize this entry: When checked, this entry is prioritized out of all selections.If multiple are prioritized, the one with the highest 'Order' is chosen." data-i18n="[title]Prioritize this entry: When checked, this entry is prioritized out of all selections.If multiple are prioritized, the one with the highest 'Order' is chosen.">
+                                    <small title="Prioritize this entry: When checked, this entry is prioritized out of all selections.
+If multiple are prioritized, the one with the highest 'Order' is chosen.
+" data-i18n="[title]Prioritize this entry: When checked, this entry is prioritized out of all selections.If multiple are prioritized, the one with the highest 'Order' is chosen.">
                                         <span data-i18n="Prioritize">Prioritize</span>
                                         <div class="fa-solid fa-circle-info opacity50p"></div>
                                     </small>
@@ -6788,7 +6868,10 @@ Add {{outlet::YourName}} to the prompt in any place you want to add all WI entri
                                             <textarea class="text_pole" rows="1" name="comment" data-i18n="[placeholder]Entry Title/Memo" placeholder="Entry Title/Memo"></textarea>
                                         </div>
                                         <!-- <span class="world_entry_form_position_value"></span> -->
-                                        <select data-i18n="[title]WI Entry Status:🔵 Constant🟢 Normal🔗 Vectorized" title="WI Entry Status:🔵 Constant🟢 Normal🔗 Vectorized" name="entryStateSelector" class="text_pole widthNatural margin0">
+                                        <select data-i18n="[title]WI Entry Status:🔵 Constant🟢 Normal🔗 Vectorized" title="WI Entry Status:
+🔵 Constant
+🟢 Normal
+🔗 Vectorized" name="entryStateSelector" class="text_pole widthNatural margin0">
                                             <option value="constant" title="Constant" data-i18n="[title]WI_Entry_Status_Constant">🔵</option>
                                             <option value="normal" title="Normal" data-i18n="[title]WI_Entry_Status_Normal">🟢</option>
                                             <option value="vectorized" title="Vectorized" data-i18n="[title]WI_Entry_Status_Vectorized">🔗</option>
@@ -6797,7 +6880,15 @@ Add {{outlet::YourName}} to the prompt in any place you want to add all WI entri
                                     <div class="WIEnteryHeaderControls flex-container">
                                         <div name="PositionBlock" class="world_entry_form_control world_entry_form_radios wi-enter-footer-text">
                                             <label for="position" class="WIEntryHeaderTitleMobile" data-i18n="Position:">Position:</label>
-                                            <select name="position" class="text_pole widthNatural margin0" data-i18n="[title]T_Position" title="↑Char: Before Character Definitions↓Char: After Character Definitions↑EM: Before Example Messages↓EM: After Example Messages↑AN: Before Author's Note↓AN: After Author's Note@D ⚙️: at Depth (System)@D 👤: at Depth (User)@D 🤖: at Depth (Assistant)">
+                                            <select name="position" class="text_pole widthNatural margin0" data-i18n="[title]T_Position" title="↑Char: Before Character Definitions
+↓Char: After Character Definitions
+↑EM: Before Example Messages
+↓EM: After Example Messages
+↑AN: Before Author's Note
+↓AN: After Author's Note
+@D ⚙️: at Depth (System)
+@D 👤: at Depth (User)
+@D 🤖: at Depth (Assistant)">
                                                 <option value="0" data-role="" data-i18n="Before Char Defs">
                                                     ↑Char
                                                 </option>
@@ -7551,129 +7642,13 @@ Shift+Click to replace the existing checkpoint with a new one"></div>
                                 </label>
                                 <textarea id="chat_cfg_positive_prompt" rows="2" class="text_pole textarea_compact" data-i18n="[placeholder]write short replies, write replies using past tense" placeholder="write short replies, write replies using past tense"></textarea>
                             </div>
-                            <div id="groupchat_cfg_use_chara_container">
-                                <label class="checkbox_label" for="groupchat_cfg_use_chara">
-                                    <input type="checkbox" id="groupchat_cfg_use_chara">
-                                    <span data-i18n="Use character CFG scales">Use character CFG scales</span>
-                                </label>
-                            </div>
+                            
                         </div>
                     </div>
                 </div>
-                <div id="chara_cfg_container" style="display: none;">
-                    <hr class="sysHR">
-                    <div class="inline-drawer">
-                        <div id="charaANBlockToggle" class="inline-drawer-toggle inline-drawer-header">
-                            <b data-i18n="Character CFG">Character CFG</b>
-                            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-                        </div>
-                        <div class="inline-drawer-content">
-                            <small><b data-i18n="Will be automatically added as the CFG for this character.">Will be automatically added as the CFG for this character.</b></small>
-                            <br>
-                            <label for="chara_cfg_guidance_scale">
-                                <span data-i18n="Scale">Scale</span>
-                                <small data-i18n="1 = disabled">1 = disabled</small>
-                            </label>
-                            <div class="range-block-range-and-counter">
-                                <div class="range-block-range">
-                                    <input type="range" id="chara_cfg_guidance_scale" name="volume" min="0.10" max="4.00" step="0.05">
-                                </div>
-                                <div class="range-block-counter">
-                                    <input type="number" min="0.10" max="4.00" step="0.05" data-for="chara_cfg_guidance_scale" id="chara_cfg_guidance_scale_counter">
-                                </div>
-                            </div>
-                            <div>
-                                <label for="chara_cfg_negative_prompt">
-                                    <span data-i18n="Negative Prompt">Negative Prompt</span>
-                                </label>
-                                <textarea id="chara_cfg_negative_prompt" rows="2" class="text_pole textarea_compact" data-i18n="[placeholder]write short replies, write replies using past tense" placeholder="write short replies, write replies using past tense"></textarea>
-                                <label for="chara_cfg_positive_prompt">
-                                    <span data-i18n="Positive Prompt">Positive Prompt</span>
-                                </label>
-                                <textarea id="chara_cfg_positive_prompt" rows="2" class="text_pole textarea_compact" data-i18n="[placeholder]write short replies, write replies using past tense" placeholder="write short replies, write replies using past tense"></textarea>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div id="global_cfg_container">
-                    <hr class="sysHR">
-                    <div class="inline-drawer">
-                        <div id="defaultANBlockToggle" class="inline-drawer-toggle inline-drawer-header">
-                            <b data-i18n="Global CFG">Global CFG</b>
-                            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-                        </div>
-                        <div class="inline-drawer-content">
-                            <small><b data-i18n="Will be used as the default CFG options for every chat unless overridden.">Will be used as the default CFG options for every chat unless overridden.</b></small>
-                            <br>
-                            <label for="global_cfg_guidance_scale">
-                                <span data-i18n="Scale">Scale</span>
-                                <small data-i18n="1 = disabled">1 = disabled</small>
-                            </label>
-                            <div class="range-block-range-and-counter">
-                                <div class="range-block-range">
-                                    <input type="range" id="global_cfg_guidance_scale" name="volume" min="0.10" max="4.00" step="0.05">
-                                </div>
-                                <div class="range-block-counter">
-                                    <input type="number" min="0.10" max="4.00" step="0.05" data-for="global_cfg_guidance_scale" id="global_cfg_guidance_scale_counter">
-                                </div>
-                            </div>
-                            <div>
-                                <label for="global_cfg_negative_prompt">
-                                    <span data-i18n="Negative Prompt">Negative Prompt</span>
-                                </label>
-                                <textarea id="global_cfg_negative_prompt" rows="2" class="text_pole textarea_compact" data-i18n="[placeholder]write short replies, write replies using past tense" placeholder="write short replies, write replies using past tense"></textarea>
-                                <label for="global_cfg_positive_prompt">
-                                    <span data-i18n="Positive Prompt">Positive Prompt</span>
-                                </label>
-                                <textarea id="global_cfg_positive_prompt" rows="2" class="text_pole textarea_compact" data-i18n="[placeholder]write short replies, write replies using past tense" placeholder="write short replies, write replies using past tense"></textarea>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div id="cfg_prompt_combine_container">
-                    <hr class="sysHR">
-                    <div class="inline-drawer">
-                        <div id="defaultANBlockToggle" class="inline-drawer-toggle inline-drawer-header">
-                            <b data-i18n="CFG Prompt Cascading">CFG Prompt Cascading</b>
-                            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-                        </div>
-                        <div class="inline-drawer-content">
-                            <div class="flex-container flexFlowColumn">
-                                <small>
-                                    <b data-i18n="Combine positive/negative prompts from other boxes.">Combine positive/negative prompts from other boxes.</b>
-                                    <br>
-                                    <span data-i18n="For example, ticking the chat, global, and character boxes combine all negative prompts into a comma-separated string.">For example, ticking the chat, global, and character boxes combine all negative prompts into a comma-separated string.</span>
-                                </small>
-                            </div>
-                            <br>
-                            <div class="flex-container flexFlowColumn">
-                                <label for="cfg_prompt_combine">
-                                    <span data-i18n="Always Include">Always Include</span>
-                                </label>
-                                <label class="checkbox_label">
-                                    <input type="checkbox" name="cfg_prompt_combine" value="0">
-                                    <span data-i18n="Chat Negatives">Chat Negatives</span>
-                                </label>
-                                <label class="checkbox_label">
-                                    <input type="checkbox" name="cfg_prompt_combine" value="1">
-                                    <span data-i18n="Character Negatives">Character Negatives</span>
-                                </label>
-                                <label class="checkbox_label">
-                                    <input type="checkbox" name="cfg_prompt_combine" value="2">
-                                    <span data-i18n="Global Negatives">Global Negatives</span>
-                                </label>
-                            </div>
-                            <div class="flex-container flexFlowColumn">
-                                <label>
-                                    <span data-i18n="Custom Separator:">Custom Separator:</span> <input id="cfg_prompt_separator" class="text_pole textarea_compact widthUnset" placeholder="&quot;\n&quot;" type="text">
-                                </label>
-                                <label>
-                                    <span data-i18n="Insertion Depth:">Insertion Depth:</span> <input id="cfg_prompt_insertion_depth" class="text_pole widthUnset" type="number" min="0" max="99">
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                
+                
+                
             </div>
         </div>
         <div id="logprobsViewer" class="drawer-content inline-drawer flexGap5">
@@ -7771,10 +7746,7 @@ Shift+Click to replace the existing checkpoint with a new one"></div>
                 <i class="fa-lg fa-solid fa-note-sticky"></i>
                 <span data-i18n="Author's Note">Author's Note</span>
             </a>
-            <a id="option_toggle_CFG">
-                <i class="fa-lg fa-solid fa-scale-balanced"></i>
-                <span data-i18n="CFG Scale">CFG Scale</span>
-            </a>
+            
             <a id="option_toggle_logprobs">
                 <i class="fa-lg fa-solid fa-pie-chart"></i>
                 <span data-i18n="Token Probabilities">Token Probabilities</span>
