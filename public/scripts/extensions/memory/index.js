@@ -642,6 +642,30 @@ async function getSummaryPromptForNow(context, force) {
 }
 
 
+
+function formatFinalSummary(summary, existingSummary) {
+    if (!existingSummary || existingSummary.trim() === '') {
+        return `[Stage 1]: ${summary.trim()}`;
+    }
+    
+    const maxMessages = extension_settings.memory.maxMessagesPerRequest || 0;
+    
+    if (maxMessages > 0) {
+        let stages = existingSummary.split(/\n\n(?=\[Stage \d+\]:)/);
+        if (stages.length > 0 && stages[stages.length - 1].startsWith('[Stage ')) {
+            stages.pop(); // Remove the last stage to overwrite it
+            let stageCount = stages.length + 1;
+            stages.push(`[Stage ${stageCount}]: ${summary.trim()}`);
+            return stages.join('\n\n');
+        } else {
+            return `[Stage 1]: ${summary.trim()}`;
+        }
+    } else {
+        let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
+        return `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
+    }
+}
+
 async function summarizeChatCustom(context) {
     const prompt = await getSummaryPromptForNow(context, false);
     if (!prompt) return;
@@ -687,14 +711,7 @@ async function summarizeChatCustom(context) {
 
         if (summary) {
             const existingSummary = getLatestMemoryFromChat(context.chat);
-            let finalSummary = summary;
-            if (existingSummary && existingSummary.trim() !== '') {
-                let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
-                finalSummary = `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
-            } else {
-                finalSummary = `[Stage 1]: ${summary.trim()}`;
-            }
-            
+            const finalSummary = formatFinalSummary(summary, existingSummary);
             setMemoryContext(finalSummary, true, lastUsedIndex);
             console.log('Custom summary generated', summary);
         } else {
@@ -779,14 +796,7 @@ async function summarizeChatMain(context, force, skipWIAN) {
     }
 
     const existingSummary = getLatestMemoryFromChat(context.chat);
-    let finalSummary = summary;
-    if (existingSummary && existingSummary.trim() !== '') {
-        let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
-        finalSummary = `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
-    } else {
-        finalSummary = `[Stage 1]: ${summary.trim()}`;
-    }
-
+    const finalSummary = formatFinalSummary(summary, existingSummary);
     setMemoryContext(finalSummary, true, index);
     return finalSummary;
 }
@@ -830,8 +840,14 @@ async function getRawSummaryPrompt(context, prompt) {
     const PADDING = 64;
     const PROMPT_SIZE = await getSourceContextSize();
     let latestUsedMessage = null;
+    
+    const maxMessages = extension_settings.memory.maxMessagesPerRequest || 0;
+    let startIndex = latestSummaryIndex + 1;
+    if (maxMessages > 0) {
+        startIndex = Math.max(0, chat.length - maxMessages);
+    }
 
-    for (let index = latestSummaryIndex + 1; index < chat.length; index++) {
+    for (let index = startIndex; index < chat.length; index++) {
         const message = chat[index];
 
         if (!message) {
@@ -854,9 +870,7 @@ async function getRawSummaryPrompt(context, prompt) {
 
         latestUsedMessage = message;
 
-        if (extension_settings.memory.maxMessagesPerRequest > 0 && chatBuffer.length >= extension_settings.memory.maxMessagesPerRequest) {
-            break;
-        }
+
     }
 
     const lastUsedIndex = context.chat.indexOf(latestUsedMessage);
