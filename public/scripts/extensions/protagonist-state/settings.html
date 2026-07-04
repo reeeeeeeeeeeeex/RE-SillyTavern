@@ -1,0 +1,108 @@
+<div id="protagonist_state_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <div class="flex-container alignitemscenter margin0">
+                <b>Protagonist State / 主角状态</b>
+            </div>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div class="protagonist_state_section">
+                <label class="checkbox_label">
+                    <input id="protagonist_state_enabled" type="checkbox" />
+                    <span>启用状态注入 / Enable state injection</span>
+                </label>
+
+                <label class="checkbox_label">
+                    <input id="protagonist_state_provide_to_memory" type="checkbox" />
+                    <span>向 Memory 总结提供状态 / Provide state to Memory summary</span>
+                </label>
+
+                <div class="flex-container flexFlowRow alignItemsCenter gap10px">
+                    <label for="protagonist_state_position">注入位置 / Position:</label>
+                    <select id="protagonist_state_position" class="text_pole">
+                        <option value="1">In-chat @ Depth</option>
+                        <option value="2">Before Main Prompt</option>
+                        <option value="0">After Main Prompt</option>
+                        <option value="-1">None</option>
+                    </select>
+                    <label for="protagonist_state_depth">深度 / Depth:</label>
+                    <input id="protagonist_state_depth" class="text_pole widthUnset" type="number" min="0" max="9999" />
+                    <label for="protagonist_state_role">角色 / Role:</label>
+                    <select id="protagonist_state_role" class="text_pole widthNatural">
+                        <option value="0">System</option>
+                        <option value="1">User</option>
+                        <option value="2">Assistant</option>
+                    </select>
+                </div>
+
+                <label for="protagonist_state_max_total_length">
+                    总字数上限 / Max total length: <input id="protagonist_state_max_total_length" class="text_pole widthUnset" type="number" min="100" max="5000" step="100" />
+                </label>
+            </div>
+
+            <hr>
+
+            <div class="protagonist_state_section">
+                <h4>数据表 / Tables</h4>
+                <div id="protagonist_state_tables">
+                    <div class="protagonist_state_table_row">
+                        <label class="checkbox_label">
+                            <input id="protagonist_state_table_global_state" data-table="global_state" type="checkbox" />
+                            <span>全局状态（时间/地点）</span>
+                        </label>
+                        <label>字数上限: <input id="protagonist_state_limit_global_state" data-table="global_state" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
+                    </div>
+                    <div class="protagonist_state_table_row">
+                        <label class="checkbox_label">
+                            <input id="protagonist_state_table_protagonist_info" data-table="protagonist_info" type="checkbox" />
+                            <span>主角信息（身份/外貌/性格）</span>
+                        </label>
+                        <label>字数上限: <input id="protagonist_state_limit_protagonist_info" data-table="protagonist_info" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
+                    </div>
+                    <div class="protagonist_state_table_row">
+                        <label class="checkbox_label">
+                            <input id="protagonist_state_table_protagonist_skills" data-table="protagonist_skills" type="checkbox" />
+                            <span>主角技能</span>
+                        </label>
+                        <label>字数上限: <input id="protagonist_state_limit_protagonist_skills" data-table="protagonist_skills" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
+                    </div>
+                    <div class="protagonist_state_table_row">
+                        <label class="checkbox_label">
+                            <input id="protagonist_state_table_inventory" data-table="inventory" type="checkbox" />
+                            <span>背包物品</span>
+                        </label>
+                        <label>字数上限: <input id="protagonist_state_limit_inventory" data-table="inventory" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
+                    </div>
+                    <div class="protagonist_state_table_row">
+                        <label class="checkbox_label">
+                            <input id="protagonist_state_table_quests_events" data-table="quests_events" type="checkbox" />
+                            <span>任务与事件</span>
+                        </label>
+                        <label>字数上限: <input id="protagonist_state_limit_quests_events" data-table="quests_events" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
+                    </div>
+                    <div class="protagonist_state_table_row">
+                        <label class="checkbox_label">
+                            <input id="protagonist_state_table_chronicle" data-table="chronicle" type="checkbox" />
+                            <span>纪要</span>
+                        </label>
+                        <label>字数上限: <input id="protagonist_state_limit_chronicle" data-table="chronicle" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
+                    </div>
+                </div>
+            </div>
+
+            <hr>
+
+            <div class="protagonist_state_section">
+                <div class="flex-container justifyspacebetween alignitemscenter">
+                    <h4>当前状态 / Current State</h4>
+                    <div id="protagonist_state_refresh" class="menu_button menu_button_icon" title="Refresh state from database">
+                        <i class="fa-solid fa-sync"></i>
+                        <span>Refresh</span>
+                    </div>
+                </div>
+                <pre id="protagonist_state_panel_content" class="protagonist_state_panel">No database state found. Make sure the database plugin has saved data to this chat.</pre>
+            </div>
+        </div>
+    </div>
+</div>

@@ -742,11 +742,28 @@ async function getWorldInfoText(context) {
  * @returns {string} Final system prompt
  */
 function buildSummarySystemPrompt(basePrompt, wiText) {
+    const sections = [];
+
     const wiTextTrimmed = (wiText || '').trim();
-    if (!wiTextTrimmed) {
+    if (wiTextTrimmed) {
+        sections.push(`[World Info / Author's Note]\n${wiTextTrimmed}`);
+    }
+
+    // Include protagonist state from the optional protagonist-state extension.
+    try {
+        const stateText = window.protagonistStateExtension?.getCurrentStateText?.() || '';
+        if (stateText) {
+            sections.push(stateText);
+        }
+    } catch (e) {
+        console.warn('[Memory] Failed to read protagonist state:', e);
+    }
+
+    if (!sections.length) {
         return basePrompt;
     }
-    return `[World Info / Author's Note]\n${wiTextTrimmed}\n\n${basePrompt}`;
+
+    return `${sections.join('\n\n')}\n\n${basePrompt}`;
 }
 
 /**
