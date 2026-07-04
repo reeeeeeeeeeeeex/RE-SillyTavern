@@ -30,11 +30,7 @@
                         <i class="fa-solid fa-database"></i>
                         <span data-i18n="ext_sum_force_text">Summarize now</span>
                     </div>
-                    <label for="memory_frozen" title="Disable automatic summary updates. While paused, the summary remains as-is. You can still force an update by pressing the Summarize now button (which is only available with the Main API)." data-i18n="[title]Disable automatic summary updates. While paused, the summary remains as-is. You can still force an update by pressing the Summarize now button (which is only available with the Main API)."><input id="memory_frozen" type="checkbox" /><span data-i18n="ext_sum_pause">Pause</span></label>
-                    <label for="memory_skipWIAN" title="Omit World Info and Author's Note from text to be summarized. Only has an effect when using the Main API. The Extras API always omits WI/AN." data-i18n="[title]Omit World Info and Author's Note from text to be summarized. Only has an effect when using the Main API. The Extras API always omits WI/AN.">
-                        <input id="memory_skipWIAN" type="checkbox" />
-                        <span data-i18n="ext_sum_no_wi_an">No WI/AN</span>
-                    </label>
+                    <label for="memory_frozen" title="Disable automatic summary updates. While paused, the summary remains as-is. You can still force an update by pressing the Summarize now button." data-i18n="[title]Disable automatic summary updates. While paused, the summary remains as-is. You can still force an update by pressing the Summarize now button."><input id="memory_frozen" type="checkbox" /><span data-i18n="ext_sum_pause">Pause</span></label>
                 </div>
                 <div class="memory_contents_controls">
                     <div id="summarySettingsBlockToggle" class="menu_button menu_button_icon" data-i18n="[title]ext_sum_settings_tip" title="Open Advanced Summary Configuration">
@@ -82,14 +78,14 @@
                     <hr>
                     <h4>Generation Parameters</h4>
                     <label for="memory_custom_api_temp">
-                        <span>Temperature</span> (<span id="memory_custom_api_temp_value"></span>)
+                        <span>Temperature</span> (<input id="memory_custom_api_temp_value" class="text_pole widthUnset" type="number" min="0" max="2" step="0.01" />)
                     </label>
                     <input id="memory_custom_api_temp" type="range" min="0" max="2" step="0.01" value="0.5" />
                     <label for="memory_custom_api_max_tokens">
-                        <span>Max Output Tokens</span> (<span id="memory_custom_api_max_tokens_value"></span>)
+                        <span>Max Output Tokens</span> (<input id="memory_custom_api_max_tokens_value" class="text_pole widthUnset" type="number" min="0" max="50000" step="1" />)
                         <small class="memory_disabled_hint">0 = Uncapped</small>
                     </label>
-                    <input id="memory_custom_api_max_tokens" type="range" min="0" max="8192" step="1" value="1024" />
+                    <input id="memory_custom_api_max_tokens" type="range" min="0" max="50000" step="1" value="50000" />
                 </div>
                 <hr>
             </div>
@@ -120,10 +116,10 @@
                             </div>
                         </label>
                         <textarea id="memory_prompt" class="text_pole textarea_compact" rows="6" data-i18n="[placeholder]ext_sum_prompt_placeholder" placeholder="This prompt will be sent to AI to request the summary generation. &lcub;&lcub;words&rcub;&rcub; will resolve to the 'Number of words' parameter."></textarea>
-                        <label for="memory_prompt_words"><span data-i18n="ext_sum_target_length_1">Target summary length</span> <span data-i18n="ext_sum_target_length_2">(</span><span id="memory_prompt_words_value"></span><span data-i18n="ext_sum_target_length_3"> words)</span></label>
+                        <label for="memory_prompt_words"><span data-i18n="ext_sum_target_length_1">Target summary length</span> <span data-i18n="ext_sum_target_length_2">(</span><input id="memory_prompt_words_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinWords}}" max="{{defaultSettings.promptMaxWords}}" step="{{defaultSettings.promptWordsStep}}" /><span data-i18n="ext_sum_target_length_3"> words)</span></label>
                         <input id="memory_prompt_words" type="range" value="{{defaultSettings.promptWords}}" min="{{defaultSettings.promptMinWords}}" max="{{defaultSettings.promptMaxWords}}" step="{{defaultSettings.promptWordsStep}}" />
                         <label for="memory_override_response_length">
-                            <span data-i18n="ext_sum_api_response_length_1">API response length</span> <span data-i18n="ext_sum_api_response_length_2">(</span><span id="memory_override_response_length_value"></span><span data-i18n="ext_sum_api_response_length_3"> tokens)</span>
+                            <span data-i18n="ext_sum_api_response_length_1">API response length</span> <span data-i18n="ext_sum_api_response_length_2">(</span><input id="memory_override_response_length_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.overrideResponseLengthMin}}" max="{{defaultSettings.overrideResponseLengthMax}}" step="{{defaultSettings.overrideResponseLengthStep}}" /><span data-i18n="ext_sum_api_response_length_3"> tokens)</span>
                             <small class="memory_disabled_hint" data-i18n="ext_sum_0_default">0 = default</small>
                         </label>
                         <input id="memory_override_response_length" type="range" value="{{defaultSettings.overrideResponseLength}}" min="{{defaultSettings.overrideResponseLengthMin}}" max="{{defaultSettings.overrideResponseLengthMax}}" step="{{defaultSettings.overrideResponseLengthStep}}" />
@@ -133,7 +129,7 @@
                           </label>
                           <input id="memory_manual_summarize_range" type="range" value="{{defaultSettings.manualSummarizeRange}}" min="{{defaultSettings.manualSummarizeRangeMin}}" max="{{defaultSettings.manualSummarizeRangeMax}}" step="{{defaultSettings.manualSummarizeRangeStep}}" />
 <label for="memory_max_messages_per_request">
-                            <span>Max Messages per Batch (Chunk Size)</span> (<span id="memory_max_messages_per_request_value"></span>)
+                            <span>Max Messages per Batch (Chunk Size)</span> (<input id="memory_max_messages_per_request_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" />)
                             <small class="memory_disabled_hint" data-i18n="ext_sum_0_unlimited">0 = unlimited</small>
                         </label>
                         <input id="memory_max_messages_per_request" type="range" value="{{defaultSettings.maxMessagesPerRequest}}" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" />
@@ -142,7 +138,7 @@
                         </h4>
                         <label for="memory_prompt_interval" class="title_restorable">
                             <span>
-                                <span data-i18n="ext_sum_update_every_messages_1">Update every</span> <span id="memory_prompt_interval_value"></span><span data-i18n="ext_sum_update_every_messages_2"> messages</span>
+                                <span data-i18n="ext_sum_update_every_messages_1">Update every</span> <input id="memory_prompt_interval_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinInterval}}" max="{{defaultSettings.promptMaxInterval}}" step="{{defaultSettings.promptIntervalStep}}" /><span data-i18n="ext_sum_update_every_messages_2"> messages</span>
                                 <small class="memory_disabled_hint" data-i18n="ext_sum_0_disable">0 = disable</small>
                             </span>
                             <div id="memory_prompt_interval_auto" data-i18n="[title]ext_sum_auto_adjust_desc" title="Try to automatically adjust the interval based on the chat metrics." class="right_menu_button">
@@ -152,7 +148,7 @@
                         <input id="memory_prompt_interval" type="range" value="{{defaultSettings.promptInterval}}" min="{{defaultSettings.promptMinInterval}}" max="{{defaultSettings.promptMaxInterval}}" step="{{defaultSettings.promptIntervalStep}}" />
                         <label for="memory_prompt_words_force" class="title_restorable">
                             <span>
-                                <span data-i18n="ext_sum_update_every_words_1">Update every</span> <span id="memory_prompt_words_force_value"></span><span data-i18n="ext_sum_update_every_words_2"> words</span>
+                                <span data-i18n="ext_sum_update_every_words_1">Update every</span> <input id="memory_prompt_words_force_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinForceWords}}" max="{{defaultSettings.promptMaxForceWords}}" step="{{defaultSettings.promptForceWordsStep}}" /><span data-i18n="ext_sum_update_every_words_2"> words</span>
                                 <small class="memory_disabled_hint" data-i18n="ext_sum_0_disable">0 = disable</small>
                             </span>
                             <div id="memory_prompt_words_auto" data-i18n="[title]ext_sum_auto_adjust_desc" title="Try to automatically adjust the interval based on the chat metrics." class="right_menu_button">

@@ -12,8 +12,7 @@
     width: max-content;
 }
 
-label[for="memory_frozen"],
-label[for="memory_skipWIAN"] {
+label[for="memory_frozen"] {
     display: flex;
     align-items: center;
     margin: 0 !important;
