@@ -64,8 +64,8 @@ async function getSourceContextSize() {
 
     if (extension_settings.memory.source === 'custom') {
         // Custom APIs are decoupled from the Main API's context constraints.
-        // We assume a generous 8192 max context for modern LLMs unless overriden.
-        const maxContext = 8192;
+        // We assume a generous 128K max context (131072) for modern LLMs unless overriden.
+        const maxContext = 131072;
         return overrideLength > 0 ? (maxContext - overrideLength) : Math.round(maxContext * 0.75);
     }
 
