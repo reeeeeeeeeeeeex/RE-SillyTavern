@@ -648,80 +648,79 @@ function formatFinalSummary(summary, existingSummary) {
         return `[Stage 1]: ${summary.trim()}`;
     }
     
-    const maxMessages = extension_settings.memory.maxMessagesPerRequest || 0;
-    
-    if (maxMessages > 0) {
-        let stages = existingSummary.split(/\n\n(?=\[Stage \d+\]:)/);
-        if (stages.length > 0 && stages[stages.length - 1].startsWith('[Stage ')) {
-            stages.pop(); // Remove the last stage to overwrite it
-            let stageCount = stages.length + 1;
-            stages.push(`[Stage ${stageCount}]: ${summary.trim()}`);
-            return stages.join('\n\n');
-        } else {
-            return `[Stage 1]: ${summary.trim()}`;
-        }
-    } else {
-        let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
-        return `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
-    }
+    let stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
+    return `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
 }
 
 async function summarizeChatCustom(context) {
     const prompt = await getSummaryPromptForNow(context, false);
     if (!prompt) return;
 
-    const { rawPrompt, lastUsedIndex } = await getRawSummaryPrompt(context, prompt);
+    let hasMore = true;
+    while (hasMore) {
+        const { rawPrompt, lastUsedIndex } = await getRawSummaryPrompt(context, prompt);
 
-    if (lastUsedIndex === null || lastUsedIndex === -1) {
-        return null;
-    }
-
-    console.log('sending custom summary API request');
-    try {
-        inApiCall = true;
-        const url = (extension_settings.memory.custom_url || '').replace(/\/+$/, '') + '/chat/completions';
-        const requestBody = {
-            model: extension_settings.memory.custom_model || '',
-            messages: [
-                { role: 'system', content: prompt },
-                { role: 'user', content: rawPrompt }
-            ],
-            temperature: Number(extension_settings.memory.custom_temp),
-        };
-        if (Number(extension_settings.memory.custom_max_tokens) > 0) {
-            requestBody.max_tokens = Number(extension_settings.memory.custom_max_tokens);
+        if (lastUsedIndex === null || lastUsedIndex === -1) {
+            break;
         }
 
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${extension_settings.memory.custom_key || ''}`
-            },
-            body: JSON.stringify(requestBody)
-        });
+        console.log('sending custom summary API request');
+        try {
+            inApiCall = true;
+            const url = (extension_settings.memory.custom_url || '').replace(/\/+$/, '') + '/chat/completions';
+            const requestBody = {
+                model: extension_settings.memory.custom_model || '',
+                messages: [
+                    { role: 'system', content: prompt },
+                    { role: 'user', content: rawPrompt }
+                ],
+                temperature: Number(extension_settings.memory.custom_temp),
+            };
+            if (Number(extension_settings.memory.custom_max_tokens) > 0) {
+                requestBody.max_tokens = Number(extension_settings.memory.custom_max_tokens);
+            }
 
-        if (!response.ok) {
-            toastr.error(`Custom API Error: ${response.statusText}`);
-            return;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${extension_settings.memory.custom_key || ''}`
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                toastr.error(`Custom API Error: ${response.statusText}`);
+                break;
+            }
+
+            const data = await response.json();
+            const summary = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+
+            if (summary) {
+                const existingSummary = getLatestMemoryFromChat(context.chat);
+                const finalSummary = formatFinalSummary(summary, existingSummary);
+                setMemoryContext(finalSummary, true, lastUsedIndex);
+                console.log('Custom summary generated', summary);
+                
+                // Check if we caught up to the end of the chat (excluding the very last message)
+                if (lastUsedIndex >= context.chat.length - 2) {
+                    hasMore = false;
+                } else {
+                    // Slight delay before next chunk
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            } else {
+                toastr.error('No summary generated from Custom API');
+                break;
+            }
+        } catch (e) {
+            console.error(e);
+            toastr.error(`Custom API Request Failed: ${e.message}`);
+            break;
+        } finally {
+            inApiCall = false;
         }
-
-        const data = await response.json();
-        const summary = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-
-        if (summary) {
-            const existingSummary = getLatestMemoryFromChat(context.chat);
-            const finalSummary = formatFinalSummary(summary, existingSummary);
-            setMemoryContext(finalSummary, true, lastUsedIndex);
-            console.log('Custom summary generated', summary);
-        } else {
-            toastr.error('No summary generated from Custom API');
-        }
-    } catch (e) {
-        console.error(e);
-        toastr.error(`Custom API Request Failed: ${e.message}`);
-    } finally {
-        inApiCall = false;
     }
 }
 
@@ -841,13 +840,7 @@ async function getRawSummaryPrompt(context, prompt) {
     const PROMPT_SIZE = await getSourceContextSize();
     let latestUsedMessage = null;
     
-    const maxMessages = extension_settings.memory.maxMessagesPerRequest || 0;
-    let startIndex = latestSummaryIndex + 1;
-    if (maxMessages > 0) {
-        startIndex = Math.max(0, chat.length - maxMessages);
-    }
-
-    for (let index = startIndex; index < chat.length; index++) {
+    for (let index = latestSummaryIndex + 1; index < chat.length; index++) {
         const message = chat[index];
 
         if (!message) {
