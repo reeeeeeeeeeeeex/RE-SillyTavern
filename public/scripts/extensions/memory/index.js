@@ -762,16 +762,22 @@ function buildSummarySystemPrompt(basePrompt, wiText) {
 }
 
 /**
- * Format existing summary stages as a section to include in subsequent summary prompts.
+ * Build the previous summaries section for the user prompt.
  * @param {string} existingSummary Existing summary from chat
+ * @param {string[]} sessionStages Stages generated during the current summarization call
+ * @param {boolean} includeExisting Whether to include the existing chat summary
  * @returns {string} Formatted previous summaries section or empty string
  */
-function buildPreviousSummariesSection(existingSummary) {
-    const summary = (existingSummary || '').trim();
-    if (!summary) {
-        return '';
+function buildPreviousSummariesSection(existingSummary, sessionStages, includeExisting) {
+    const parts = [];
+    if (includeExisting) {
+        const existing = (existingSummary || '').trim();
+        if (existing) parts.push(existing);
     }
-    return `\n\n[Previous summaries]\n${summary}`;
+    const session = (sessionStages || []).join('\n\n').trim();
+    if (session) parts.push(session);
+    if (parts.length === 0) return '';
+    return `\n\n[Previous summaries]\n${parts.join('\n\n')}`;
 }
 
 async function summarizeChatCustom(context, force = false) {
@@ -783,7 +789,6 @@ async function summarizeChatCustom(context, force = false) {
 
     let explicitStartIndex = null;
     let isFirstManualBatch = false;
-    let currentEndIndex = null;
 
     const manualRange = extension_settings.memory.manualSummarizeRange || 0;
     if (manualRange > 0) {
@@ -791,19 +796,24 @@ async function summarizeChatCustom(context, force = false) {
         isFirstManualBatch = true;
     }
 
+    const windowStart = explicitStartIndex !== null
+        ? explicitStartIndex
+        : getIndexOfLatestChatSummary(context.chat) + 1;
     const batchSize = extension_settings.memory.maxMessagesPerRequest > 0
         ? extension_settings.memory.maxMessagesPerRequest
         : 10;
+    let currentEndIndex = windowStart + batchSize - 1;
     let previousLastUsedIndex = -1;
+    const sessionStages = [];
 
     while (true) {
         let existingSummary = getLatestMemoryFromChat(context.chat);
-        const previousSummariesText = buildPreviousSummariesSection(existingSummary);
+        const previousSummariesText = buildPreviousSummariesSection(existingSummary, sessionStages, !force);
 
         const { rawPrompt, lastUsedIndex, messageCount } = await getRawSummaryPrompt(
             context,
             systemPrompt,
-            explicitStartIndex,
+            windowStart,
             currentEndIndex,
             previousSummariesText,
         );
@@ -819,7 +829,7 @@ async function summarizeChatCustom(context, force = false) {
         }
         previousLastUsedIndex = lastUsedIndex;
 
-        console.log(`[Memory Custom] Summarizing batch: start=${explicitStartIndex ?? 'auto'} end=${lastUsedIndex} messages=${messageCount}`);
+        console.log(`[Memory Custom] Summarizing batch: start=${windowStart} end=${lastUsedIndex} messages=${messageCount}`);
         try {
             inApiCall = true;
             const messages = [
@@ -827,6 +837,7 @@ async function summarizeChatCustom(context, force = false) {
                 { role: 'user', content: rawPrompt },
             ];
             const summary = await sendMemoryCustomApiRequest(messages);
+            sessionStages.push(summary);
 
             existingSummary = getLatestMemoryFromChat(context.chat);
             const finalSummary = formatFinalSummary(summary, existingSummary, isFirstManualBatch);
@@ -866,7 +877,6 @@ async function summarizeChatMain(context, force) {
 
     let explicitStartIndex = null;
     let isFirstManualBatch = false;
-    let currentEndIndex = null;
 
     const manualRange = extension_settings.memory.manualSummarizeRange || 0;
     if (manualRange > 0) {
@@ -874,10 +884,15 @@ async function summarizeChatMain(context, force) {
         isFirstManualBatch = true;
     }
 
+    const windowStart = explicitStartIndex !== null
+        ? explicitStartIndex
+        : getIndexOfLatestChatSummary(context.chat) + 1;
     const batchSize = extension_settings.memory.maxMessagesPerRequest > 0
         ? extension_settings.memory.maxMessagesPerRequest
         : 10;
+    let currentEndIndex = windowStart + batchSize - 1;
     let previousLastUsedIndex = -1;
+    const sessionStages = [];
 
     while (true) {
         let summary = '';
@@ -886,7 +901,7 @@ async function summarizeChatMain(context, force) {
             || extension_settings.memory.prompt_builder === prompt_builders.DEFAULT;
 
         let existingSummary = getLatestMemoryFromChat(context.chat);
-        const previousSummariesText = buildPreviousSummariesSection(existingSummary);
+        const previousSummariesText = buildPreviousSummariesSection(existingSummary, sessionStages, !force);
 
         try {
             inApiCall = true;
@@ -897,7 +912,7 @@ async function summarizeChatMain(context, force) {
             const { rawPrompt, lastUsedIndex, messageCount } = await getRawSummaryPrompt(
                 context,
                 systemPrompt,
-                explicitStartIndex,
+                windowStart,
                 currentEndIndex,
                 previousSummariesText,
             );
@@ -915,7 +930,7 @@ async function summarizeChatMain(context, force) {
             }
             previousLastUsedIndex = lastUsedIndex;
 
-            console.log(`[Memory Main] Summarizing batch: start=${explicitStartIndex ?? 'auto'} end=${lastUsedIndex} messages=${messageCount}`);
+            console.log(`[Memory Main] Summarizing batch: start=${windowStart} end=${lastUsedIndex} messages=${messageCount}`);
 
             /** @type {import('../../../script.js').GenerateRawParams} */
             const params = {
@@ -942,6 +957,7 @@ async function summarizeChatMain(context, force) {
             if (isContextChanged(context)) {
                 break;
             }
+            sessionStages.push(summary);
             existingSummary = getLatestMemoryFromChat(context.chat);
             const finalSummary = formatFinalSummary(summary, existingSummary, isFirstManualBatch);
             setMemoryContext(finalSummary, true, index);
@@ -1038,12 +1054,12 @@ async function getRawSummaryPrompt(context, systemPrompt, explicitStartIndex = n
 
 function onMemoryRestoreClick() {
     const context = getContext();
-    const content = $('#memory_contents').val();
     const reversedChat = context.chat.slice().reverse();
     reversedChat.shift();
 
+    // Always delete the latest stored memory entry, regardless of the current textarea content.
     for (let mes of reversedChat) {
-        if (mes.extra && mes.extra.memory == content) {
+        if (mes.extra && mes.extra.memory) {
             delete mes.extra.memory;
             break;
         }
