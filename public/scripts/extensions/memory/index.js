@@ -656,10 +656,6 @@ async function getSummaryPromptForNow(context, force) {
         if (hasMemoryMarker) {
             break;
         }
-        // Count user messages only; "10 rounds" means 10 user turns, not 20 total messages.
-        if (!mes.is_user) {
-            continue;
-        }
         messagesSinceLastSummary++;
         wordsSinceLastSummary += extractAllWords(mes.mes).length;
     }
