@@ -89,7 +89,19 @@ const prompt_builders = {
     RAW_NON_BLOCKING: 2,
 };
 
-const defaultPrompt = 'Ignore previous instructions. Summarize the most important facts and events in the recent chat messages below. This is an incremental summary, so do not include earlier events that are already summarized, just focus on the new developments. Limit the summary to {{words}} words or less. Your response should include nothing but the summary.';
+const defaultPrompt = `Ignore previous instructions. You are a concise roleplay-chat summarizer.
+
+Task: Summarize only the most important new facts and events from the recent chat messages below. This is an incremental summary — do NOT repeat events already covered in previous summaries.
+
+Rules:
+- Use objective third-person narration. NEVER use second-person pronouns such as "你", "你们", "your", or directly address the characters/reader.
+- Focus on plot progression, character actions, decisions, locations, relationships, and status changes.
+- Skip explicit sexual details; describe relationship developments factually and briefly.
+- Do NOT write scene narration, dialogue lines, or parenthetical descriptions like （...）.
+- Keep the summary compact, factual, and in the same language as the chat.
+- Use a consistent format every time: short bullet points or short paragraphs.
+- Limit your response to {{words}} words or less.
+- Output only the summary, nothing else.`;
 const defaultTemplate = '[Summary: {{summary}}]';
 
 const defaultSettings = {
@@ -139,7 +151,8 @@ function loadSettings() {
     }
 
     const oldDefaultPrompt = 'Ignore previous instructions. Summarize the most important facts and events in the story so far. If a summary already exists in your memory, use that as a base and expand with new facts. Limit the summary to {{words}} words or less. Your response should include nothing but the summary.';
-    if (extension_settings.memory.prompt === oldDefaultPrompt) {
+    const previousDefaultPrompt = 'Ignore previous instructions. Summarize the most important facts and events in the recent chat messages below. This is an incremental summary, so do not include earlier events that are already summarized, just focus on the new developments. Limit the summary to {{words}} words or less. Your response should include nothing but the summary.';
+    if (extension_settings.memory.prompt === oldDefaultPrompt || extension_settings.memory.prompt === previousDefaultPrompt) {
         extension_settings.memory.prompt = defaultPrompt;
     }
 
