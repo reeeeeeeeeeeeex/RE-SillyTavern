@@ -649,14 +649,19 @@ async function getSummaryPromptForNow(context, force) {
     let wordsSinceLastSummary = 0;
     let conditionSatisfied = false;
     for (let i = context.chat.length - 1; i >= 0; i--) {
-        const hasMemoryMarker = context.chat[i].extra
-            && context.chat[i].extra.memory !== undefined
-            && context.chat[i].extra.memory !== null;
+        const mes = context.chat[i];
+        const hasMemoryMarker = mes.extra
+            && mes.extra.memory !== undefined
+            && mes.extra.memory !== null;
         if (hasMemoryMarker) {
             break;
         }
+        // Count user messages only; "10 rounds" means 10 user turns, not 20 total messages.
+        if (!mes.is_user) {
+            continue;
+        }
         messagesSinceLastSummary++;
-        wordsSinceLastSummary += extractAllWords(context.chat[i].mes).length;
+        wordsSinceLastSummary += extractAllWords(mes.mes).length;
     }
 
     if (messagesSinceLastSummary >= extension_settings.memory.promptInterval) {
