@@ -520,7 +520,9 @@ async function forceSummarizeChat(quiet) {
     const toast = quiet ? jQuery() : toastr.info('Summarizing chat...', 'Please wait', { timeOut: 0, extendedTimeOut: 0 });
     const value = extension_settings.memory.source === summary_sources.main
         ? await summarizeChatMain(context, true, skipWIAN)
-        : await summarizeChatWebLLM(context, true);
+        : extension_settings.memory.source === summary_sources.custom
+            ? await summarizeChatCustom(context)
+            : await summarizeChatWebLLM(context, true);
 
     toastr.clear(toast);
 
@@ -910,7 +912,8 @@ async function getRawSummaryPrompt(context, prompt, explicitStartIndex = null) {
     const PROMPT_SIZE = await getSourceContextSize();
     let latestUsedMessage = null;
     
-    for (let index = latestSummaryIndex + 1; index < chat.length; index++) {
+    const startIndex = explicitStartIndex !== null ? explicitStartIndex : latestSummaryIndex + 1;
+    for (let index = startIndex; index < chat.length; index++) {
         const message = chat[index];
 
         if (!message) {
