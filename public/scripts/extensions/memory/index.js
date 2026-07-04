@@ -142,6 +142,10 @@ const defaultSettings = {
     manualSummarizeRangeMin: 0,
     manualSummarizeRangeMax: 10000,
     manualSummarizeRangeStep: 1,
+    autoSummarizeRange: 0,
+    autoSummarizeRangeMin: 0,
+    autoSummarizeRangeMax: 10000,
+    autoSummarizeRangeStep: 1,
     prompt_builder: prompt_builders.DEFAULT,
 };
 
@@ -196,6 +200,8 @@ function loadSettings() {
     $('#memory_max_messages_per_request_value').val(extension_settings.memory.maxMessagesPerRequest);
     $('#memory_manual_summarize_range').val(extension_settings.memory.manualSummarizeRange);
     $('#memory_manual_summarize_range_value').val(extension_settings.memory.manualSummarizeRange);
+    $('#memory_auto_summarize_range').val(extension_settings.memory.autoSummarizeRange);
+    $('#memory_auto_summarize_range_value').val(extension_settings.memory.autoSummarizeRange);
     $('#memory_include_wi_scan').prop('checked', extension_settings.memory.scan).trigger('input');
     switchSourceControls(extension_settings.memory.source);
 }
@@ -389,6 +395,14 @@ function onManualSummarizeRangeInput() {
     saveSettingsDebounced();
 }
 
+function onAutoSummarizeRangeInput() {
+    const value = $(this).val();
+    extension_settings.memory.autoSummarizeRange = Number(value);
+    $('#memory_auto_summarize_range_value').val(extension_settings.memory.autoSummarizeRange);
+    $('#memory_auto_summarize_range').val(extension_settings.memory.autoSummarizeRange);
+    saveSettingsDebounced();
+}
+
 /**
  * Get the latest memory summary from the chat.
  * @param {ChatMessage[]} chat Chat messages
@@ -402,7 +416,7 @@ function getLatestMemoryFromChat(chat) {
     const reversedChat = chat.slice().reverse();
     reversedChat.shift();
     for (let mes of reversedChat) {
-        if (mes.extra && mes.extra.memory) {
+        if (mes.extra && mes.extra.memory !== undefined && mes.extra.memory !== null) {
             return mes.extra.memory;
         }
     }
@@ -423,7 +437,7 @@ function getIndexOfLatestChatSummary(chat) {
     const reversedChat = chat.slice().reverse();
     reversedChat.shift();
     for (let mes of reversedChat) {
-        if (mes.extra && mes.extra.memory) {
+        if (mes.extra && mes.extra.memory !== undefined && mes.extra.memory !== null) {
             return chat.indexOf(mes);
         }
     }
@@ -619,7 +633,10 @@ async function getSummaryPromptForNow(context, force) {
     let wordsSinceLastSummary = 0;
     let conditionSatisfied = false;
     for (let i = context.chat.length - 1; i >= 0; i--) {
-        if (context.chat[i].extra && context.chat[i].extra.memory) {
+        const hasMemoryMarker = context.chat[i].extra
+            && context.chat[i].extra.memory !== undefined
+            && context.chat[i].extra.memory !== null;
+        if (hasMemoryMarker) {
             break;
         }
         messagesSinceLastSummary++;
@@ -787,8 +804,11 @@ async function summarizeChatCustom(context, force = false) {
     let explicitStartIndex = null;
 
     const manualRange = extension_settings.memory.manualSummarizeRange || 0;
-    if (manualRange > 0) {
+    const autoRange = extension_settings.memory.autoSummarizeRange || 0;
+    if (force && manualRange > 0) {
         explicitStartIndex = Math.max(0, context.chat.length - 1 - manualRange);
+    } else if (!force && autoRange > 0) {
+        explicitStartIndex = Math.max(0, context.chat.length - 1 - autoRange);
     }
 
     const windowStart = explicitStartIndex !== null
@@ -869,8 +889,11 @@ async function summarizeChatMain(context, force) {
     let explicitStartIndex = null;
 
     const manualRange = extension_settings.memory.manualSummarizeRange || 0;
-    if (manualRange > 0) {
+    const autoRange = extension_settings.memory.autoSummarizeRange || 0;
+    if (force && manualRange > 0) {
         explicitStartIndex = Math.max(0, context.chat.length - 1 - manualRange);
+    } else if (!force && autoRange > 0) {
+        explicitStartIndex = Math.max(0, context.chat.length - 1 - autoRange);
     }
 
     const windowStart = explicitStartIndex !== null
@@ -1172,6 +1195,7 @@ function setupListeners() {
     $('#memory_override_response_length, #memory_override_response_length_value').off('input').on('input', onOverrideResponseLengthInput);
     $('#memory_max_messages_per_request, #memory_max_messages_per_request_value').off('input').on('input', onMaxMessagesPerRequestInput);
     $('#memory_manual_summarize_range, #memory_manual_summarize_range_value').off('input').on('input', onManualSummarizeRangeInput);
+    $('#memory_auto_summarize_range, #memory_auto_summarize_range_value').off('input').on('input', onAutoSummarizeRangeInput);
     $('#memory_include_wi_scan').off('input').on('input', onMemoryIncludeWIScanInput);
     $('#summarySettingsBlockToggle').off('click').on('click', function () {
         document.getElementById('memory_advanced_modal').showModal();

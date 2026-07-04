@@ -128,7 +128,12 @@
                               <small class="memory_disabled_hint">0 = Auto (since last summary)</small>
                           </label>
                           <input id="memory_manual_summarize_range" type="range" value="{{defaultSettings.manualSummarizeRange}}" min="{{defaultSettings.manualSummarizeRangeMin}}" max="{{defaultSettings.manualSummarizeRangeMax}}" step="{{defaultSettings.manualSummarizeRangeStep}}" />
-<label for="memory_max_messages_per_request">
+                          <label for="memory_auto_summarize_range">
+                              <span>Auto Summarize Range (Total Lookback)</span> <input id="memory_auto_summarize_range_value" class="text_pole widthUnset" type="number" min="0" max="10000" />
+                              <small class="memory_disabled_hint">0 = Auto (since last summary)</small>
+                          </label>
+                          <input id="memory_auto_summarize_range" type="range" value="{{defaultSettings.autoSummarizeRange}}" min="{{defaultSettings.autoSummarizeRangeMin}}" max="{{defaultSettings.autoSummarizeRangeMax}}" step="{{defaultSettings.autoSummarizeRangeStep}}" />
+                          <label for="memory_max_messages_per_request">
                             <span>Max Messages per Batch (Chunk Size)</span> (<input id="memory_max_messages_per_request_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" />)
                             <small class="memory_disabled_hint" data-i18n="ext_sum_0_unlimited">0 = unlimited</small>
                         </label>
