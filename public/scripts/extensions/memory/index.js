@@ -172,6 +172,21 @@ function loadSettings() {
         }
     }
 
+    // Validate stored role to prevent injection as the wrong role.
+    const validRoles = Object.values(extension_prompt_roles);
+    if (!validRoles.includes(Number(extension_settings.memory.role))) {
+        extension_settings.memory.role = defaultSettings.role;
+    }
+
+    // One-time migration: force memory injection role to System for cache/prefix consistency.
+    // Users who explicitly want User/Assistant can change it back; this flag prevents re-migration.
+    if (!extension_settings.memory.roleMigrationApplied) {
+        const currentRole = Number(extension_settings.memory.role);
+        if (currentRole === extension_prompt_roles.USER || !validRoles.includes(currentRole)) {
+            extension_settings.memory.role = extension_prompt_roles.SYSTEM;
+        }
+        extension_settings.memory.roleMigrationApplied = true;
+    }
 
     $('#summary_source').val(extension_settings.memory.source).trigger('change');
     $('#memory_custom_api_url').val(extension_settings.memory.custom_url).trigger('input');
@@ -343,8 +358,9 @@ function onMemoryDepthInput() {
 }
 
 function onMemoryRoleInput() {
-    const value = $(this).val();
-    extension_settings.memory.role = Number(value);
+    const value = Number($(this).val());
+    const validRoles = Object.values(extension_prompt_roles);
+    extension_settings.memory.role = validRoles.includes(value) ? value : extension_prompt_roles.SYSTEM;
     reinsertMemory();
     saveSettingsDebounced();
 }
@@ -1100,11 +1116,15 @@ function reinsertMemory() {
  * @param {number|null} index Index of the chat message to save the summary to. If null, the pre-last message is used.
  */
 function setMemoryContext(value, saveToMessage, index = null) {
-    setExtensionPrompt(MODULE_NAME, formatMemoryValue(value), extension_settings.memory.position, extension_settings.memory.depth, extension_settings.memory.scan, extension_settings.memory.role);
+    const validRoles = Object.values(extension_prompt_roles);
+    const role = validRoles.includes(Number(extension_settings.memory.role))
+        ? extension_settings.memory.role
+        : extension_prompt_roles.SYSTEM;
+    setExtensionPrompt(MODULE_NAME, formatMemoryValue(value), extension_settings.memory.position, extension_settings.memory.depth, extension_settings.memory.scan, role);
     $('#memory_contents').val(value);
 
     const summaryLog = value
-        ? `Summary set to: ${value}. Position: ${extension_settings.memory.position}. Depth: ${extension_settings.memory.depth}. Role: ${extension_settings.memory.role}`
+        ? `Summary set to: ${value}. Position: ${extension_settings.memory.position}. Depth: ${extension_settings.memory.depth}. Role: ${role}`
         : 'Summary has no content';
     console.debug(summaryLog);
 
