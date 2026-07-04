@@ -143,6 +143,17 @@ function loadSettings() {
         Object.assign(extension_settings.memory, defaultSettings);
     }
 
+    const oldDefaultPrompt = 'Ignore previous instructions. Summarize the most important facts and events in the story so far. If a summary already exists in your memory, use that as a base and expand with new facts. Limit the summary to {{words}} words or less. Your response should include nothing but the summary.';
+    if (extension_settings.memory.prompt === oldDefaultPrompt) {
+        extension_settings.memory.prompt = defaultPrompt;
+    }
+
+    // Force migration for cache optimization: Move memory insertion to bottom of chat
+    if (extension_settings.memory.position === extension_prompt_types.IN_PROMPT) {
+        extension_settings.memory.position = extension_prompt_types.IN_CHAT;
+        extension_settings.memory.depth = 0;
+    }
+
     for (const key of Object.keys(defaultSettings)) {
         if (extension_settings.memory[key] === undefined) {
             extension_settings.memory[key] = defaultSettings[key];
