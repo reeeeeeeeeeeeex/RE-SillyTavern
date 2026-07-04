@@ -36,12 +36,14 @@ re-sillytavern/
 └── server.js                     # Entry point
 ```
 
-## Refactoring Goals
-1. **Optimize prompts** — Improve system prompts for better AI roleplay quality
-2. **Optimize cache hit rate** — Restructure prompt ordering for DeepSeek's prefix-based caching
-3. **Optimize frontend** — Modernize the UI/UX
-4. **ComfyUI integration** — Connect local ComfyUI (D:\ComfyUI_windows_portable) for image generation in chat
-5. **Chat Summary** — Implement or configure auto/manual memory summary feature
+## Refactoring Goals & Completed Features
+1. **Optimize prompts** – Improve system prompts for better AI roleplay quality
+2. **Optimize cache hit rate** – Restructured prompt ordering for DeepSeek's prefix-based caching. Extension prompts like Memory (Auto-Summary), Author's Note, and Vector Storage are strictly placed at `IN_CHAT` @ `Depth 0` to preserve the prefix cache of the chat history.
+3. **Incremental Chunked Summary** – Rewrote `Memory` extension logic (`public/scripts/extensions/memory/index.js`) to append summaries (`[Stage X]`) natively instead of overwriting, with the summarizer LLM only reading new text since the last summary.
+4. **UI Simplification & Security** – 
+   - Trimmed bloated API dropdowns in `index.html` to only feature essential Chat Completions.
+   - Disabled upstream `git pull` in `UpdateAndStart.bat` and `UpdateForkAndStart.bat` to prevent custom code from being overwritten.
+5. **ComfyUI integration** – Connect local ComfyUI (`D:\ComfyUI_windows_portable`) for image generation in chat
 
 ## Key Conventions
 - Primary LLM backend: **DeepSeek API** (official, direct)
@@ -49,7 +51,6 @@ re-sillytavern/
 - Proxy configured at: `http://127.0.0.1:7897`
 - Server runs on port **8000**
 
-## Development Notes
 ## Development Notes
 - **Prefix Caching Strategy (DeepSeek / Claude)**: Dynamic components (World Info, Author's Note, Auto-Summary) MUST be injected at `@Depth 0` or `@Depth 1`. This allows the dynamic text to be squashed into the latest User message during Post-Processing (SEMI_TOOLS/strict mode), keeping the massive Chat History completely untouched and 100% cached.
 - DeepSeek cache hit stats are logged to console as `[DeepSeek Cache]` in non-streaming mode
