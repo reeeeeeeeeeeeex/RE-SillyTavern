@@ -763,21 +763,13 @@ function buildSummarySystemPrompt(basePrompt, wiText) {
 
 /**
  * Build the previous summaries section for the user prompt.
- * @param {string} existingSummary Existing summary from chat
- * @param {string[]} sessionStages Stages generated during the current summarization call
- * @param {boolean} includeExisting Whether to include the existing chat summary
+ * Uses the current Memory textbox content so edits/deletions are reflected immediately.
  * @returns {string} Formatted previous summaries section or empty string
  */
-function buildPreviousSummariesSection(existingSummary, sessionStages, includeExisting) {
-    const parts = [];
-    if (includeExisting) {
-        const existing = (existingSummary || '').trim();
-        if (existing) parts.push(existing);
-    }
-    const session = (sessionStages || []).join('\n\n').trim();
-    if (session) parts.push(session);
-    if (parts.length === 0) return '';
-    return `\n\n[Previous summaries]\n${parts.join('\n\n')}`;
+function buildPreviousSummariesSection() {
+    const summary = String($('#memory_contents').val() || '').trim();
+    if (!summary) return '';
+    return `\n\n[Previous summaries]\n${summary}`;
 }
 
 async function summarizeChatCustom(context, force = false) {
@@ -804,11 +796,9 @@ async function summarizeChatCustom(context, force = false) {
         : 10;
     let currentEndIndex = windowStart + batchSize - 1;
     let previousLastUsedIndex = -1;
-    const sessionStages = [];
 
     while (true) {
-        let existingSummary = getLatestMemoryFromChat(context.chat);
-        const previousSummariesText = buildPreviousSummariesSection(existingSummary, sessionStages, !force);
+        const previousSummariesText = buildPreviousSummariesSection();
 
         const { rawPrompt, lastUsedIndex, messageCount } = await getRawSummaryPrompt(
             context,
@@ -837,9 +827,8 @@ async function summarizeChatCustom(context, force = false) {
                 { role: 'user', content: rawPrompt },
             ];
             const summary = await sendMemoryCustomApiRequest(messages);
-            sessionStages.push(summary);
 
-            existingSummary = getLatestMemoryFromChat(context.chat);
+            const existingSummary = getLatestMemoryFromChat(context.chat);
             const finalSummary = formatFinalSummary(summary, existingSummary, isFirstManualBatch);
             setMemoryContext(finalSummary, true, lastUsedIndex);
             console.log('[Memory Custom] Summary generated', summary);
@@ -892,7 +881,6 @@ async function summarizeChatMain(context, force) {
         : 10;
     let currentEndIndex = windowStart + batchSize - 1;
     let previousLastUsedIndex = -1;
-    const sessionStages = [];
 
     while (true) {
         let summary = '';
@@ -900,8 +888,7 @@ async function summarizeChatMain(context, force) {
         const lock = extension_settings.memory.prompt_builder === prompt_builders.RAW_BLOCKING
             || extension_settings.memory.prompt_builder === prompt_builders.DEFAULT;
 
-        let existingSummary = getLatestMemoryFromChat(context.chat);
-        const previousSummariesText = buildPreviousSummariesSection(existingSummary, sessionStages, !force);
+        const previousSummariesText = buildPreviousSummariesSection();
 
         try {
             inApiCall = true;
@@ -957,8 +944,7 @@ async function summarizeChatMain(context, force) {
             if (isContextChanged(context)) {
                 break;
             }
-            sessionStages.push(summary);
-            existingSummary = getLatestMemoryFromChat(context.chat);
+            const existingSummary = getLatestMemoryFromChat(context.chat);
             const finalSummary = formatFinalSummary(summary, existingSummary, isFirstManualBatch);
             setMemoryContext(finalSummary, true, index);
 
