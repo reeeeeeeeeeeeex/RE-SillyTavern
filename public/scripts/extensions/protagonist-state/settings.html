@@ -18,6 +18,23 @@
                     <span>向 Memory 总结提供状态 / Provide state to Memory summary</span>
                 </label>
 
+                <label class="checkbox_label">
+                    <input id="protagonist_state_auto_apply_table_edit" type="checkbox" />
+                    <span>自动应用 AI 回复里的 &lt;tableEdit&gt; / Auto-apply &lt;tableEdit&gt; blocks</span>
+                </label>
+
+                <label class="checkbox_label">
+                    <input id="protagonist_state_show_bottom_bar" type="checkbox" />
+                    <span>显示底部状态条 / Show bottom state bar</span>
+                </label>
+
+                <div class="flex-container flexFlowRow alignItemsCenter gap10px">
+                    <div id="protagonist_state_open_popup" class="menu_button menu_button_icon" title="打开状态编辑弹窗">
+                        <i class="fa-solid fa-table"></i>
+                        <span>打开状态弹窗 / Open State Popup</span>
+                    </div>
+                </div>
+
                 <div class="flex-container flexFlowRow alignItemsCenter gap10px">
                     <label for="protagonist_state_position">注入位置 / Position:</label>
                     <select id="protagonist_state_position" class="text_pole">
@@ -62,6 +79,13 @@
                     </div>
                     <div class="protagonist_state_table_row">
                         <label class="checkbox_label">
+                            <input id="protagonist_state_table_important_characters" data-table="important_characters" type="checkbox" />
+                            <span>重要角色</span>
+                        </label>
+                        <label>字数上限: <input id="protagonist_state_limit_important_characters" data-table="important_characters" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
+                    </div>
+                    <div class="protagonist_state_table_row">
+                        <label class="checkbox_label">
                             <input id="protagonist_state_table_protagonist_skills" data-table="protagonist_skills" type="checkbox" />
                             <span>主角技能</span>
                         </label>
@@ -87,6 +111,13 @@
                             <span>纪要</span>
                         </label>
                         <label>字数上限: <input id="protagonist_state_limit_chronicle" data-table="chronicle" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
+                    </div>
+                    <div class="protagonist_state_table_row">
+                        <label class="checkbox_label">
+                            <input id="protagonist_state_table_options" data-table="options" type="checkbox" />
+                            <span>选项</span>
+                        </label>
+                        <label>字数上限: <input id="protagonist_state_limit_options" data-table="options" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
                     </div>
                 </div>
             </div>

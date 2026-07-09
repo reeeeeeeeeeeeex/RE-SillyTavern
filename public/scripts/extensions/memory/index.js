@@ -1370,4 +1370,11 @@ export async function init() {
             () => summaryMacroHandler(),
             'Returns the latest memory/summary from the current chat.');
     }
+
+    // Expose API for other extensions (e.g., protagonist-state popup).
+    window.memoryExtension = {
+        summarizeNow: async (quiet = false) => forceSummarizeChat(quiet),
+        getSummaryText: () => String($('#memory_contents').val() || ''),
+        getSettings: () => extension_settings.memory,
+    };
 }

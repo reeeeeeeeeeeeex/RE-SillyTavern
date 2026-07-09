@@ -1,0 +1,17 @@
+{
+    "id": "eeffbfe4-a561-4e00-8435-a9f351e879dd",
+    "scriptName": "星河璀璨数据库召回配套正则2",
+    "findRegex": "/以下是用户[\\s\\S]*$/m",
+    "replaceString": "",
+    "trimStrings": [],
+    "placement": [
+        1
+    ],
+    "disabled": false,
+    "markdownOnly": true,
+    "promptOnly": true,
+    "runOnEdit": true,
+    "substituteRegex": 0,
+    "minDepth": 2,
+    "maxDepth": null
+}

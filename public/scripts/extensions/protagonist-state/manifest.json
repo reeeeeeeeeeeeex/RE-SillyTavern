@@ -1,0 +1,14 @@
+{
+    "display_name": "Protagonist State / 主角状态",
+    "loading_order": 10,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "SillyTavern fork",
+    "version": "1.1.0",
+    "homePage": "https://github.com/SillyTavern/SillyTavern",
+    "hooks": {
+        "activate": "init"
+    }
+}

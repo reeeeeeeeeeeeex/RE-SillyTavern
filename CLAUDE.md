@@ -32,7 +32,13 @@ npm run plugins:install  # Install SillyTavern plugins
 npm run plugins:update   # Update SillyTavern plugins
 ```
 
-There is **no test suite** in this fork; `package.json` has no `test` script.
+`package.json` has no `test` script and `node_modules/.bin/eslint` may be missing (devDependencies not installed). For targeted linting without the project ESLint, use `node --check <file.js>` for syntax validation.
+
+Extension logic tests (no browser needed):
+
+```bash
+node test-protagonist-state.mjs   # Protagonist State: DDL parsing, delta reconstruct, snapshot read
+```
 
 ## Architecture Overview
 
@@ -99,10 +105,16 @@ Location: `public/scripts/extensions/memory/`
 
 Location: `public/scripts/extensions/protagonist-state/`
 
-- Reads the SP·数据库 III (database reference) plugin's persisted snapshots from chat message tags: `msg.TavernDB_ACU_IsolatedData[isolationKey].independentData`.
-- Formats selected tables (`global_state`, `protagonist_info`, `protagonist_skills`, `inventory`, `quests_events`, `chronicle`) into a prompt block.
-- Injects via `setExtensionPrompt()` at `IN_CHAT @ Depth 0` by default.
-- Exposes `window.protagonistStateExtension.getCurrentStateText()` for other extensions (e.g., Memory summary context).
+- Now ships with a `manifest.json` and loads as a native SillyTavern extension. Self-contained: does NOT depend on the SP·数据库 III plugin running.
+- Reads tables from persisted snapshots in chat message tags (`msg.TavernDB_ACU_IsolatedData[isolationKey].independentData`); reconstructs delta-mode snapshots and auto-detects the isolation key.
+- Writes back: `writeSnapshotToChat()` writes a checkpoint snapshot to the latest non-user message's `TavernDB_ACU_IsolatedData` and calls `saveChat()`.
+- Parses `<tableEdit>` blocks from AI responses (structured `updateRow/insertRow/deleteRow` commands, not SQL) and applies them on `GENERATION_ENDED` when `autoApplyTableEdit` is on.
+- UI: a native `callGenericPopup` popup with tabs for all 8 tables + Memory; cells are `contenteditable`, rows can be added/deleted. A collapsible bottom bar (`#protagonist_state_bottom_bar`) shows a compact summary. Entry point in the extension settings drawer.
+- Formats all default tables (`global_state`, `protagonist_info`, `important_characters`, `protagonist_skills`, `inventory`, `quests_events`, `chronicle`, `options`).
+- The source data stores each sheet's `content` as a 2D array `[headerRow, dataRow, ...]` with **Chinese** headers. The extension parses each sheet's `sourceData.ddl` to recover English column names (`parseDDLColumns`); a hardcoded `TABLE_COLUMNS` fallback covers default tables if the DDL is missing.
+- Injects via `setExtensionPrompt()` at `IN_CHAT @ Depth 0` / `SYSTEM` by default. Prompt injection is truncated by per-table and total length limits; the popup shows full untruncated content.
+- Exposes `window.protagonistStateExtension.{getCurrentStateText, openPopup, applyTableEdit}`. The `provideToMemory` setting gates whether Memory receives the state. Memory exposes `window.memoryExtension.{summarizeNow, getSummaryText, getSettings}` for the popup's Memory tab.
+- Logic tests (no browser needed): `node test-protagonist-state.mjs` from the repo root. The harness strips ESM imports, mocks browser globals, and exercises DDL parsing, 2D-array-to-object conversion, delta apply/reconstruct, isolation-key detection, and snapshot reading.
 
 ### SP·数据库 III (Database Reference) Plugin
 
@@ -140,3 +152,32 @@ UI elements in extension `settings.html` that use `data-summary-source="main"` a
 ### Close Buttons in Wide Modals
 
 The `.popup-button-close` class uses `position: absolute; right: -6px; top: -6px;`, which can render off-screen on very wide modals. Move the close button inside `.popup-header` and use Flexbox (`justify-content: space-between; align-items: center;`) instead.
+
+### Extension Import Paths (mixed depth)
+
+Extensions live at `public/scripts/extensions/<name>/index.js` (URL `/scripts/extensions/<name>/index.js`). Import depths differ by target location — **do not assume all imports use the same number of `../`**:
+
+- `script.js` is at `public/script.js` (URL `/script.js`) → **3 levels up**: `../../../script.js`
+- `popup.js`, `extensions.js`, `constants.js`, `utils.js` are at `public/scripts/` (URL `/scripts/...`) → **2 levels up**: `../../popup.js`, `../../extensions.js`, etc.
+
+A wrong depth silently 404s the module import, the extension's `init()` never runs, and no UI appears (but the extension still shows up in `/api/extensions/discover`). Verify with `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000<script.js>` — 200 means the path resolves. Memory extension uses `../../../script.js` + `../../extensions.js` as the reference pattern.
+
+### Extension `manifest.json` Is Required
+
+A folder under `public/scripts/extensions/` is auto-discovered by `/api/extensions/discover` (which just `readdirSync`s the folder), but **it will not activate without a `manifest.json`** declaring `js`, `css`, `hooks.activate`, etc. An extension folder without a manifest is silently skipped. If an extension's settings never appear in the UI and `extension_settings.<name>` is never created, check that the manifest exists and the `init` export matches `hooks.activate`.
+
+### Verifying Runtime Assumptions About Third-Party Plugins
+
+Do not assume a bundled third-party plugin (e.g., the SP·数据库 III body at `数据库参考/index.js`) is actually running. Its file being present in the repo does NOT mean it is loaded in the user's SillyTavern. Before relying on a global API like `window.AutoCardUpdaterAPI`, verify it exists (ask the user to run it in the browser console, or check whether the data is stale). The protagonist-state extension was initially written assuming the live API existed; in reality the data came from stale chat-tag snapshots and the API was never present.
+
+### 2D Array Sheet Format with Chinese Headers
+
+The SP·数据库 III schema stores each sheet's `content` as a 2D array `[headerRow, dataRow1, ...]` where `content[0]` is the header row in **Chinese** (e.g., `["row_id", "主角当前所在地点", ...]`) and data rows are positional arrays, not objects. To get English-keyed objects, parse the sheet's `sourceData.ddl` (`CREATE TABLE` with `-- 中文注释`) to recover English column names in order (`parseDDLColumns`), then map `row[i] → englishColumns[i]`. Don't treat `rows[0]` as an object with English properties — it is the Chinese header array.
+
+### Sheet UIDs Must Be Discovered, Not Invented
+
+Each default table has a stable UID (e.g., `sheet_dCudvUnH` for `global_state`, `sheet_NcBlYRH5` for `important_characters`, `sheet_OptionsNew` for `options`). These are not derivable from the table name — grep them from the plugin source (`uid: "sheet_..."`) before adding to `SHEET_MAP`. Invented UIDs silently match nothing.
+
+### Test Harness ASI and ESM Pitfalls
+
+When using `new Function(...)` to eval an extension's stripped source for Node-side logic tests: `return\n(async () => {...})` triggers Automatic Semicolon Insertion and the IIFE is never invoked (returns `undefined`). Write `return (async () => {...})()` with no newline between `return` and `(`. Also, `.mjs` files cannot use `require()` — use ESM `import` (a `require('fs')` in a `.mjs` throws `ERR_AMBIGUOUS_MODULE_SYNTAX`).
