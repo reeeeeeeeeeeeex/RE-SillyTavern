@@ -249,3 +249,7 @@ Each default table has a stable UID (e.g., `sheet_dCudvUnH` for `global_state`, 
 ### Test Harness ASI and ESM Pitfalls
 
 When using `new Function(...)` to eval an extension's stripped source for Node-side logic tests: `return\n(async () => {...})` triggers Automatic Semicolon Insertion and the IIFE is never invoked (returns `undefined`). Write `return (async () => {...})()` with no newline between `return` and `(`. Also, `.mjs` files cannot use `require()` - use ESM `import` (a `require('fs')` in a `.mjs` throws `ERR_AMBIGUOUS_MODULE_SYNTAX`).
+
+### `#sheld` Flex Layout Compresses Injected Elements
+
+`#sheld` is `display: flex; flex-direction: column;`. The `#chat` element has `flex-grow: 1` and will expand to fill all remaining vertical space. Any element inserted between `#chat` and `#form_sheld` (e.g., the protagonist-state bottom bar via `$anchor.before($bar)`) becomes a flex child **without `flex-shrink: 0`**, so `#chat`'s `flex-grow: 1` compresses it to height 0. This is silent: the element exists in the DOM but is visually invisible (especially with `overflow: hidden`). Always add `flex-shrink: 0` to any element injected into `#sheld` between `#chat` and `#form_sheld`.
