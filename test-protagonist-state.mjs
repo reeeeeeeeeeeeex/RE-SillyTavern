@@ -39,7 +39,10 @@ try {
 ${code}
 return {
   parseDDLColumns, sheetContentToObjects, applyTableDelta, detectIsolationKey,
-  readDatabaseSnapshot, formatTable, getEnglishColumns, buildCurrentStateText, SHEET_MAP
+  readDatabaseSnapshot, formatTable, getEnglishColumns, buildCurrentStateText, SHEET_MAP,
+  extractTableEditBlock, parseStructuredEdits, applyEditsToSnapshot, buildStateUpdateSystemPrompt,
+  selectUpdateHistoryMessages, buildStateUpdateRequestMessages, getSelectedTableKeys,
+  renderEditableStateRecords, ensureSheetContent, renderPopupContent, getTimelineContextForMemory
 };
 } catch (e) { console.error('IIFE eval error:', e); throw e; }
 }`;
@@ -369,6 +372,148 @@ test('formats important_characters with absent flag', () => {
     const formatted = mod.formatTable('important_characters', rows);
     assert.ok(formatted.includes('艾莉丝'));
     assert.ok(formatted.includes('[Absent]'), 'absent character marked');
+});
+
+console.log('=== tableEdit updater ===');
+test('parses a strict tableEdit block returned by the update API', () => {
+    const block = mod.extractTableEditBlock(`Before\n<tableEdit>
+updateRow('global_state', 1, {"current_location":"Market","cur_time":"2026-07-10 10:00"})
+insertRow('inventory', {"item_name":"Potion","quantity":"1"})
+deleteRow('quests_events', 3)
+</tableEdit>\nAfter`);
+    const ops = mod.parseStructuredEdits(block);
+    assert.strictEqual(ops.length, 3);
+    assert.deepStrictEqual(ops[0], { op: 'updateRow', table: 'global_state', rowId: 1, cells: { current_location: 'Market', cur_time: '2026-07-10 10:00' } });
+    assert.deepStrictEqual(ops[1], { op: 'insertRow', table: 'inventory', cells: { item_name: 'Potion', quantity: '1' } });
+    assert.deepStrictEqual(ops[2], { op: 'deleteRow', table: 'quests_events', rowId: 3 });
+});
+
+test('applies parsed update API operations using English column names', () => {
+    const snapshot = {
+        sheet_dCudvUnH: {
+            sourceData: { ddl: globalDdl },
+            content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [1, 'Forest', '09:00', '', '']],
+        },
+    };
+    mod.applyEditsToSnapshot(snapshot, [{
+        op: 'updateRow', table: 'global_state', rowId: 1,
+        cells: { current_location: 'Market', cur_time: '10:00' },
+    }]);
+    assert.deepStrictEqual(snapshot.sheet_dCudvUnH.content[1], [1, 'Market', '10:00', '', '']);
+});
+
+test('state update prompt specifies tableEdit-only output and schemas', () => {
+    const prompt = mod.buildStateUpdateSystemPrompt();
+    assert.ok(prompt.includes('Return only one <tableEdit> block'));
+    assert.ok(prompt.includes('global_state: row_id, current_location'));
+    assert.ok(prompt.includes('insertRow'));
+});
+
+console.log('=== state update context ===');
+const updateHistoryChat = [
+    { is_user: true, mes: 'first user message' },
+    { is_system: true, mes: 'system message must be excluded' },
+    { is_user: false, mes: 'first assistant reply' },
+    { is_user: true, mes: 'second user message' },
+    { is_user: false, mes: 'second assistant reply' },
+];
+
+test('selects all non-system messages when the history limit is zero', () => {
+    const selected = mod.selectUpdateHistoryMessages(updateHistoryChat, 4, 0);
+    assert.deepStrictEqual(selected.map(x => x.mes), [
+        'first user message', 'first assistant reply', 'second user message', 'second assistant reply',
+    ]);
+});
+
+test('selects the latest N non-system messages in chronological order', () => {
+    const selected = mod.selectUpdateHistoryMessages(updateHistoryChat, 4, 2);
+    assert.deepStrictEqual(selected.map(x => x.mes), ['second user message', 'second assistant reply']);
+});
+
+test('adds Memory Summary only when the setting is enabled', () => {
+    mocks.extension_settings.protagonistState = { updateHistoryMessages: 2, includeMemorySummary: true };
+    mocks.window.memoryExtension = { getSummaryText: () => 'Live memory summary' };
+    const target = { index: 4, assistantMessage: updateHistoryChat[4] };
+    const withSummary = mod.buildStateUpdateRequestMessages({}, { chat: updateHistoryChat }, target)[1].content;
+    assert.ok(withSummary.includes('[Memory Summary]\nLive memory summary'));
+    assert.ok(withSummary.includes('second user message'));
+    assert.ok(!withSummary.includes('first user message'));
+    assert.ok(!withSummary.includes('system message must be excluded'));
+
+    mocks.extension_settings.protagonistState.includeMemorySummary = false;
+    const withoutSummary = mod.buildStateUpdateRequestMessages({}, { chat: updateHistoryChat }, target)[1].content;
+    assert.ok(!withoutSummary.includes('[Memory Summary]'));
+});
+
+test('uses the checked display tables for the bottom state bar', () => {
+    mocks.extension_settings.protagonistState = {
+        tables: { global_state: true, protagonist_info: false, inventory: true },
+    };
+    const snapshot = {
+        sheet_dCudvUnH: { content: [] },
+        sheet_DpKcVGqg: { content: [] },
+        sheet_in05z9vz: { content: [] },
+    };
+    assert.deepStrictEqual(mod.getSelectedTableKeys(snapshot), ['global_state', 'inventory']);
+});
+
+test('renders checked tables as editable vertical record cards', () => {
+    const snapshot = {
+        sheet_dCudvUnH: {
+            sourceData: { ddl: globalDdl },
+            content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [1, 'Market', '10:00', '', '']],
+        },
+    };
+    const html = mod.renderEditableStateRecords(snapshot, 'global_state', 'ps_bottom_records');
+    assert.ok(html.includes('contenteditable="true"'));
+    assert.ok(html.includes('ps_add_row'));
+    assert.ok(html.includes('ps_record_card'));
+    assert.ok(html.includes('ps_state_field'));
+    assert.ok(!html.includes('<table'));
+});
+
+test('initializes an empty table before adding a row', () => {
+    const sheet = { sourceData: { ddl: globalDdl }, content: [] };
+    const content = mod.ensureSheetContent(sheet, 'global_state');
+    assert.deepStrictEqual(content[0], ['row_id', 'current_location', 'cur_time', 'prev_scene_time', 'elapsed_time']);
+});
+
+test('renders a sidebar link and continuous section for every active table plus Memory', () => {
+    const snapshot = {
+        sheet_dCudvUnH: {
+            sourceData: { ddl: globalDdl },
+            content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [1, 'Market', '10:00', '', '']],
+        },
+    };
+    const html = mod.renderPopupContent(snapshot);
+    assert.ok(html.includes('ps_popup_sidebar'));
+    assert.ok(html.includes('ps_popup_content_scroll'));
+    for (const tableKey of ['global_state', 'protagonist_info', 'important_characters', 'protagonist_skills', 'inventory', 'quests_events', 'options', 'memory']) {
+        assert.ok(html.includes(`data-section="${tableKey}"`), `navigation should include ${tableKey}`);
+        assert.ok(html.includes(`ps_popup_section_${tableKey}`), `content should include ${tableKey}`);
+    }
+    assert.ok(!html.includes('ps_tabs'));
+    assert.ok(!html.includes('data-section="chronicle"'));
+});
+
+test('does not expose legacy chronicle as an active state table', () => {
+    assert.ok(!Object.values(mod.SHEET_MAP).some(table => table.key === 'chronicle'));
+});
+
+test('preserves a legacy chronicle sheet when reading a snapshot for later checkpoint saves', () => {
+    const chat = [{
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+            '': {
+                independentData: {
+                    sheet_dCudvUnH: { content: [['row_id'], [1]] },
+                    sheet_3NoMc1wI: { name: '纪要表', content: [['row_id'], [1]] },
+                },
+            },
+        },
+    }];
+    const snapshot = mod.readDatabaseSnapshot(chat);
+    assert.ok(snapshot.sheet_3NoMc1wI, 'legacy chronicle must remain in the raw snapshot');
 });
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);

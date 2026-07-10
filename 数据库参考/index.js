@@ -646,87 +646,6 @@
     };
 
     /**
-     * 纪要表 — 默认表定义
-     */
-    const chronicleSheet = {
-        uid: "sheet_3NoMc1wI",
-        name: "纪要表",
-        sourceData: {
-            note: "轮次日志，每轮交互后必须立即插入一条新记录。\n- 列1: 时间跨度 - 本轮事件发生的精确时间范围。\n- 列2: 地点 - 本轮事件发生的地点，从大到小描述。\n- 列3: 纪要 - 以第三方视角客观记录本轮事件，不得加入推测、情绪化语言、负面解读或主观判断。内容必须基于正文明确发生的事实，不得补充未出现的情节，不少于300字，结尾部分禁止进行总结或者升华。\n- 列4: 概要 - 30字以内，一句话概括纪要内容。\n- 列5: 编码索引 - 格式为 AMXXXX，XXXX从0001递增。\n",
-            initNode: "故事初始化时，插入一条新记录用于记录初始化剧情。",
-            deleteNode: "禁止删除。",
-            updateNode: "禁止操作。",
-            insertNode: "每轮交互结束后插入一条新记录。\nSQL示例: INSERT INTO chronicle (row_id, time_span, location, chronicle_text, summary, code_index) VALUES ((SELECT MAX(row_id)+1 FROM chronicle), '2024-03-15 14:00~15:00', '王城·中央广场', '本轮纪要内容...', '一句话概括', 'AM0002');",
-            ddl: `CREATE TABLE chronicle ( -- 纪要表
-  row_id INTEGER PRIMARY KEY, -- 行号
-  time_span TEXT NOT NULL, -- 时间跨度
-  location TEXT NOT NULL, -- 地点
-  chronicle_text TEXT NOT NULL, -- 纪要
-  summary TEXT CHECK(summary IS NULL OR LENGTH(summary) <= 40), -- 概览
-  code_index TEXT NOT NULL UNIQUE CHECK(code_index GLOB 'AM[0-9][0-9][0-9][0-9]') -- 编码索引
-);`
-        },
-        content: [
-            [
-                "row_id",
-                "时间跨度",
-                "地点",
-                "纪要",
-                "概览",
-                "编码索引"
-            ]
-        ],
-        updateConfig: {
-            uiSentinel: -1,
-            contextDepth: -1,
-            updateFrequency: -1,
-            batchSize: -1,
-            skipFloors: -1
-        },
-        exportConfig: {
-            enabled: true,
-            splitByRow: true,
-            entryName: "纪要",
-            entryType: "keyword",
-            keywords: "编码索引",
-            preventRecursion: true,
-            injectionTemplate: "<记忆回溯>\n$1\n</记忆回溯>",
-            extraIndexEnabled: true,
-            extraIndexEntryName: "纪要索引",
-            extraIndexColumns: [
-                "概览",
-                "编码索引"
-            ],
-            extraIndexColumnModes: {
-                "概览": "index_only",
-                "编码索引": "both"
-            },
-            extraIndexInjectionTemplate: "<已发生的事件概览>\n$1\n</已发生的事件概览>",
-            entryPlacement: {
-                position: "at_depth_as_system",
-                depth: 999,
-                order: 10000
-            },
-            extraIndexPlacement: {
-                position: "at_depth_as_system",
-                depth: 1000,
-                order: 10010
-            },
-            fixedEntryPlacement: {
-                position: "at_depth_as_system",
-                depth: 9999,
-                order: 99987
-            },
-            fixedIndexPlacement: {
-                position: "at_depth_as_system",
-                depth: 9999,
-                order: 99988
-            }
-        },
-        orderNo: 6
-    };
-
-    /**
      * 选项表 — 默认表定义
      */
     const optionsSheet = {
@@ -841,7 +760,6 @@
             [protagonistSkillsSheet.uid]: protagonistSkillsSheet,
             [inventorySheet.uid]: inventorySheet,
             [questsEventsSheet.uid]: questsEventsSheet,
-            [chronicleSheet.uid]: chronicleSheet,
             [optionsSheet.uid]: optionsSheet,
             mate: mateConfig
         };
@@ -912,6 +830,18 @@
             "deletable": true
         }
     ];
+    // The timeline is now owned by Memory Summary. Remove the old default-table
+    // instruction while preserving all other table-editing behavior.
+    function removeLegacyChroniclePromptRules_ACU(segments) {
+        for (const segment of segments) {
+            if (!segment || typeof segment.content !== 'string') continue;
+            segment.content = segment.content
+                .replace(/针对纪要表的额外规则：如果<当前表格数据>里存在纪要表，那么本轮就必须对其进行插入一条新的总结记录。\n?/g, '')
+                .replace(/日志与纪要语气校准：[^\n]*(?:屈服|“屈服”|"屈服")等单向压迫词汇！/g, '');
+        }
+    }
+    removeLegacyChroniclePromptRules_ACU(DEFAULT_CHAR_CARD_PROMPT_ACU);
+
     // --- [SQL 版默认填表提示词] ---
     // SQLite 模式下使用，mainSlot A 改为 SQL 编辑指令格式
     const DEFAULT_CHAR_CARD_PROMPT_SQL_ACU = DEFAULT_CHAR_CARD_PROMPT_ACU.map(segment => {
@@ -990,6 +920,7 @@ DELETE FROM table_name WHERE row_id = 2;
         }
         return { ...segment };
     });
+    removeLegacyChroniclePromptRules_ACU(DEFAULT_CHAR_CARD_PROMPT_SQL_ACU);
     const DEFAULT_TABLE_TEMPLATE_ACU = buildDefaultTableTemplateString_ACU();
     let TABLE_TEMPLATE_ACU = DEFAULT_TABLE_TEMPLATE_ACU;
     // --- [剧情推进] 默认设置 ---
@@ -9502,14 +9433,14 @@ $CONTENT
         // [新增] 聊天级"空白指导表"：一旦存在，本聊天合并/显示顺序都按指导表，不再按模板
         // 注意：该指导表按隔离标签分槽，因此切换标识时可拥有不同的"参数/表头/顺序总指导"
         const sheetGuideData = getChatSheetGuideDataForIsolationKey_ACU(currentIsolationKey);
-        const hasSheetGuide = !!(sheetGuideData && typeof sheetGuideData === 'object' && Object.keys(sheetGuideData).some(k => k.startsWith('sheet_')));
+        const hasSheetGuide = getActiveSheetKeys_ACU(sheetGuideData).length > 0;
         // [新增] 获取当前模板/指导表的表格键列表，用于过滤非当前模板的数据
         // 优先使用指导表（如果存在），否则使用当前模板
         // 这样可以确保：切换/导入新模板后，只读取当前模板中存在的表格数据
         const templateSheetKeys = (() => {
             if (hasSheetGuide) {
                 // 存在指导表：使用指导表的表格键（指导表已在导入/切换模板时更新）
-                return Object.keys(sheetGuideData).filter(k => k.startsWith('sheet_'));
+                return getActiveSheetKeys_ACU(sheetGuideData);
             }
             // 不存在指导表：使用当前模板的表格键
             return getTemplateSheetKeys_ACU();
@@ -9540,6 +9471,9 @@ $CONTENT
                 const modifiedKeys = tagData.modifiedKeys || [];
                 const updateGroupKeys = tagData.updateGroupKeys || [];
                 Object.keys(independentData).forEach(storedSheetKey => {
+                    if (carryLegacyChronicleSheet_ACU(independentData, storedSheetKey, mergedData, foundSheets)) {
+                        return;
+                    }
                     // [新增] 只处理当前模板/指导表中存在的表格
                     if (!templateSheetKeySet.has(storedSheetKey)) {
                         logDebug_ACU(`[Merge] Skipping sheet [${storedSheetKey}] - not in current template/guide`);
@@ -9587,6 +9521,9 @@ $CONTENT
                     const modifiedKeys = readModifiedKeys_ACU(message);
                     const updateGroupKeys = readUpdateGroupKeys_ACU(message);
                     Object.keys(independentData).forEach(storedSheetKey => {
+                        if (carryLegacyChronicleSheet_ACU(independentData, storedSheetKey, mergedData, foundSheets)) {
+                            return;
+                        }
                         // [新增] 只处理当前模板/指导表中存在的表格
                         if (!templateSheetKeySet.has(storedSheetKey)) {
                             logDebug_ACU(`[Merge] Skipping sheet [${storedSheetKey}] (legacy) - not in current template/guide`);
@@ -9619,6 +9556,9 @@ $CONTENT
                 if (legacyStdData) {
                     const standardData = legacyStdData;
                     Object.keys(standardData).forEach(k => {
+                        if (carryLegacyChronicleSheet_ACU(standardData, k, mergedData, foundSheets)) {
+                            return;
+                        }
                         // [新增] 只处理当前模板/指导表中存在的表格
                         if (!templateSheetKeySet.has(k)) {
                             return;
@@ -9637,6 +9577,9 @@ $CONTENT
                 if (legacySumData) {
                     const summaryData = legacySumData;
                     Object.keys(summaryData).forEach(k => {
+                        if (carryLegacyChronicleSheet_ACU(summaryData, k, mergedData, foundSheets)) {
+                            return;
+                        }
                         // [新增] 只处理当前模板/指导表中存在的表格
                         if (!templateSheetKeySet.has(k)) {
                             return;
@@ -9719,6 +9662,8 @@ $CONTENT
         // 2) 对指导表中缺失的表：使用指导表结构作为初始值（seedRows 仅保留字段，不默认展开到 content）
         // 3) 对于存在历史数据的表：以历史数据为主，但表名/表头/参数/顺序以指导表为准；不把 seedRows 合并进真实数据行
         if (hasSheetGuide) {
+            const hiddenLegacySheets = Object.fromEntries(Object.entries(mergedData)
+                .filter(([key, sheet]) => isLegacyChronicleSheet_ACU(key, sheet)));
             const guided = materializeDataFromSheetGuide_ACU(sheetGuideData, { includeSeedRows: false });
             const guideKeys = getSortedSheetKeys_ACU(guided, { ignoreChatGuide: true, includeMissingFromGuide: true });
             guideKeys.forEach(k => {
@@ -9785,6 +9730,7 @@ $CONTENT
                 }
             });
             mergedData = guided;
+            Object.assign(mergedData, hiddenLegacySheets);
         }
         // [修复] 合并结果按"用户手动顺序/模板顺序"重排，避免合并过程导致的随机乱序
         const orderedKeys = getSortedSheetKeys_ACU(mergedData);
@@ -22446,10 +22392,23 @@ $CONTENT
      * service/template/chat-scope/chat-scope-sheet.ts
      * Sheet 排序和清洗（E 组）
      */
+    function isLegacyChronicleSheet_ACU(sheetKey, sheet) {
+        return sheetKey === 'sheet_3NoMc1wI' || String(sheet?.name || '') === '纪要表';
+    }
+    function getActiveSheetKeys_ACU(dataObj) {
+        if (!dataObj || typeof dataObj !== 'object') return [];
+        return Object.keys(dataObj).filter(key => key.startsWith('sheet_') && !isLegacyChronicleSheet_ACU(key, dataObj[key]));
+    }
+    function carryLegacyChronicleSheet_ACU(source, sheetKey, target, found) {
+        if (!isLegacyChronicleSheet_ACU(sheetKey, source?.[sheetKey]) || found[sheetKey] || !source?.[sheetKey]) return false;
+        target[sheetKey] = JSON.parse(JSON.stringify(source[sheetKey]));
+        found[sheetKey] = true;
+        return true;
+    }
     function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
         if (!dataObj || typeof dataObj !== 'object')
             return [];
-        const existingKeys = Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
+        const existingKeys = getActiveSheetKeys_ACU(dataObj);
         if (existingKeys.length === 0)
             return [];
         // [新增] 聊天级空白指导表：一旦存在，则该聊天不再按模板顺序合并/显示，而是按此指导表作为总指导
@@ -22458,7 +22417,7 @@ $CONTENT
                 const isolationKey = (typeof getCurrentIsolationKey_ACU === 'function') ? getCurrentIsolationKey_ACU() : '';
                 const guideData = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
                 if (guideData && typeof guideData === 'object') {
-                    const guideKeys = Object.keys(guideData).filter(k => k.startsWith('sheet_'));
+                    const guideKeys = getActiveSheetKeys_ACU(guideData);
                     if (guideKeys.length > 0) {
                         const sorted = guideKeys.sort((a, b) => {
                             const ao = Number.isFinite(guideData?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
@@ -22481,7 +22440,7 @@ $CONTENT
         // baseOrderKeys 的优先级：模板顺序 > 当前对象键顺序（保证"载入模板编好号"后的稳定性）
         const baseKeys = (() => {
             const tk = templateObj && typeof templateObj === 'object'
-                ? Object.keys(templateObj).filter(k => k.startsWith('sheet_'))
+                ? getActiveSheetKeys_ACU(templateObj)
                 : [];
             return tk.length ? tk : existingKeys;
         })();
@@ -22536,6 +22495,11 @@ $CONTENT
         keys.forEach(k => {
             if (dataObj[k])
                 out[k] = dataObj[k];
+        });
+        // Hidden legacy data must survive a reorder/checkpoint cycle even though it
+        // is excluded from active navigation, prompt assembly, and rendering.
+        Object.keys(dataObj).filter(k => isLegacyChronicleSheet_ACU(k, dataObj[k])).forEach(k => {
+            if (dataObj[k]) out[k] = dataObj[k];
         });
         return out;
     }
@@ -22605,7 +22569,7 @@ $CONTENT
         const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
         if (!templateObj || typeof templateObj !== 'object')
             return [];
-        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+        const keys = getActiveSheetKeys_ACU(templateObj);
         if (keys.length === 0)
             return [];
         const changed = ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
@@ -25127,7 +25091,7 @@ $CONTENT
             dataIsolationHistory: [], // legacy 字段保留但不再持久化
             characterSettings: {}, // Start with an empty object
             knownCustomEntryNames: [], // [新增] 记录已创建的自定义条目名称，用于清理
-            mergeSummaryPrompt: DEFAULT_MERGE_SUMMARY_PROMPT_ACU, // [新增] 合并总结提示词
+            mergeSummaryPrompt: '', // 纪要合并已迁移至 Memory Summary
             mergeTargetCount: 1, // [新增] 合并目标条数
             mergeBatchSize: 5, // [新增] 合并批次大小
             mergeStartIndex: 1, // [新增] 合并起始条数
@@ -41070,7 +41034,7 @@ $CONTENT
         }
         try {
             settings_ACU.charCardPrompt = isSqliteMode() ? DEFAULT_CHAR_CARD_PROMPT_SQL_ACU : DEFAULT_CHAR_CARD_PROMPT_ACU;
-            settings_ACU.mergeSummaryPrompt = isSqliteMode() ? DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU : DEFAULT_MERGE_SUMMARY_PROMPT_ACU;
+            settings_ACU.mergeSummaryPrompt = '';
             saveSettingsAndNotify_ACU();
             const templateResetOk = await resetTableTemplate_ACU({
                 showToast: false,
@@ -41295,7 +41259,7 @@ $CONTENT
             const combinedData = {
                 prompt: promptSegments,
                 template: templateData,
-                mergeSummaryPrompt: settings_ACU.mergeSummaryPrompt || (isSqliteMode() ? DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU : DEFAULT_MERGE_SUMMARY_PROMPT_ACU), // [新增] 导出合并提示词（根据存储模式选择默认版本）
+                mergeSummaryPrompt: settings_ACU.mergeSummaryPrompt || '',
                 mergeTargetCount: settings_ACU.mergeTargetCount || 1, // [新增] 导出合并目标条数
                 mergeBatchSize: settings_ACU.mergeBatchSize || 5, // [新增] 导出合并批次大小
                 mergeStartIndex: settings_ACU.mergeStartIndex || 1, // [新增] 导出合并起始条数
@@ -84980,7 +84944,7 @@ Expected function or array of functions, received type ${typeof value}.`
         return {
             prompt: Array.isArray(settings_ACU.charCardPrompt) ? settings_ACU.charCardPrompt : [],
             template: templateData,
-            mergeSummaryPrompt: settings_ACU.mergeSummaryPrompt || (isSqliteMode() ? DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU : DEFAULT_MERGE_SUMMARY_PROMPT_ACU),
+            mergeSummaryPrompt: settings_ACU.mergeSummaryPrompt || '',
             mergeTargetCount: settings_ACU.mergeTargetCount || 1,
             mergeBatchSize: settings_ACU.mergeBatchSize || 5,
             mergeStartIndex: settings_ACU.mergeStartIndex || 1,
@@ -85172,7 +85136,7 @@ Expected function or array of functions, received type ${typeof value}.`
             busyAction.value = 'reset-defaults';
             try {
                 settings_ACU.charCardPrompt = isSqliteMode() ? DEFAULT_CHAR_CARD_PROMPT_SQL_ACU : DEFAULT_CHAR_CARD_PROMPT_ACU;
-                settings_ACU.mergeSummaryPrompt = isSqliteMode() ? DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU : DEFAULT_MERGE_SUMMARY_PROMPT_ACU;
+                settings_ACU.mergeSummaryPrompt = '';
                 const snapshot = getDefaultTemplateSnapshot_ACU();
                 if (!snapshot?.templateStr)
                     throw new Error('无法解析默认模板。');

@@ -3,6 +3,8 @@ import {
     event_types,
     extension_prompt_roles,
     extension_prompt_types,
+    generateRaw,
+    getRequestHeaders,
     saveSettingsDebounced,
     setExtensionPrompt,
 } from '../../../script.js';
@@ -11,6 +13,7 @@ import { debounce_timeout } from '../../constants.js';
 import { debounce } from '../../utils.js';
 
 const MODULE_NAME = 'protagonist_state';
+const LEGACY_CHRONICLE_SHEET = 'sheet_3NoMc1wI';
 
 // Reverse-lookup helpers built from SHEET_MAP below.
 const SHEET_MAP = {
@@ -20,7 +23,6 @@ const SHEET_MAP = {
     'sheet_lEARaBa8': { key: 'protagonist_skills', name: '主角技能' },
     'sheet_in05z9vz': { key: 'inventory', name: '背包物品' },
     'sheet_etak47Ve': { key: 'quests_events', name: '任务与事件' },
-    'sheet_3NoMc1wI': { key: 'chronicle', name: '纪要' },
     'sheet_OptionsNew': { key: 'options', name: '选项' },
 };
 const TABLE_TO_SHEET = Object.fromEntries(Object.entries(SHEET_MAP).map(([k, v]) => [v.key, k]));
@@ -32,7 +34,6 @@ const TABLE_ICONS = {
     protagonist_skills: 'fa-star',
     inventory: 'fa-briefcase',
     quests_events: 'fa-scroll',
-    chronicle: 'fa-book',
     options: 'fa-list-ol',
 };
 
@@ -43,7 +44,6 @@ const TABLE_COLUMNS = {
     protagonist_skills: ['row_id', 'skill_name', 'skill_type', 'skill_level', 'effect_desc'],
     inventory: ['row_id', 'item_name', 'quantity', 'description', 'category'],
     quests_events: ['row_id', 'quest_name', 'quest_type', 'issuer', 'detail_desc', 'current_progress', 'time_limit', 'reward', 'penalty'],
-    chronicle: ['row_id', 'time_span', 'location', 'chronicle_text', 'summary', 'code_index'],
     options: ['row_id', 'option_1', 'option_2', 'option_3', 'option_4'],
 };
 
@@ -52,11 +52,11 @@ const defaultSettings = {
     position: extension_prompt_types.IN_CHAT,
     depth: 0,
     role: extension_prompt_roles.SYSTEM,
-    maxTotalLength: 2000,
     provideToMemory: true,
-    autoApplyTableEdit: true,
+    updateInterval: 0,
+    updateHistoryMessages: 20,
+    includeMemorySummary: true,
     showBottomBar: true,
-    bottomBarTables: ['global_state', 'protagonist_info', 'options'],
     tables: {
         global_state: true,
         protagonist_info: true,
@@ -64,7 +64,6 @@ const defaultSettings = {
         protagonist_skills: true,
         inventory: false,
         quests_events: false,
-        chronicle: false,
         options: false,
     },
     tableLimits: {
@@ -74,7 +73,6 @@ const defaultSettings = {
         protagonist_skills: 400,
         inventory: 300,
         quests_events: 400,
-        chronicle: 300,
         options: 300,
     },
 };
@@ -94,15 +92,15 @@ function loadSettings() {
     }
     settings.tables = { ...defaultSettings.tables, ...settings.tables };
     settings.tableLimits = { ...defaultSettings.tableLimits, ...settings.tableLimits };
-    if (!Array.isArray(settings.bottomBarTables)) settings.bottomBarTables = [...defaultSettings.bottomBarTables];
 
     $('#protagonist_state_enabled').prop('checked', settings.enabled).trigger('input');
     $('#protagonist_state_position').val(settings.position).trigger('change');
     $('#protagonist_state_depth').val(settings.depth).trigger('input');
     $('#protagonist_state_role').val(settings.role).trigger('change');
-    $('#protagonist_state_max_total_length').val(settings.maxTotalLength).trigger('input');
     $('#protagonist_state_provide_to_memory').prop('checked', settings.provideToMemory).trigger('input');
-    $('#protagonist_state_auto_apply_table_edit').prop('checked', settings.autoApplyTableEdit).trigger('input');
+    $('#protagonist_state_update_interval').val(settings.updateInterval).trigger('input');
+    $('#protagonist_state_update_history_messages').val(settings.updateHistoryMessages).trigger('input');
+    $('#protagonist_state_include_memory_summary').prop('checked', settings.includeMemorySummary).trigger('input');
     $('#protagonist_state_show_bottom_bar').prop('checked', settings.showBottomBar).trigger('input');
 
     for (const tableKey of Object.keys(SHEET_MAP).map(k => SHEET_MAP[k].key)) {
@@ -217,7 +215,9 @@ function readDatabaseSnapshot(chat) {
     const merged = {};
     const covered = new Set();
     const pendingDeltas = [];
-    const knownSheets = Object.keys(SHEET_MAP);
+    // Legacy chronicle data is not displayed or injected, but must be read before
+    // creating a fresh checkpoint so editing another state table never drops it.
+    const knownSheets = [...Object.keys(SHEET_MAP), LEGACY_CHRONICLE_SHEET];
 
     function collect(data) {
         const newly = [];
@@ -403,22 +403,21 @@ function applyEditsToSnapshot(snapshot, ops) {
 }
 
 async function applyTableEditFromResponse(aiResponse) {
-    const settings = extension_settings.protagonistState;
-    if (!settings?.autoApplyTableEdit) return;
     const block = extractTableEditBlock(aiResponse);
-    if (!block || !block.trim()) return;
+    if (!block || !block.trim()) return false;
     const ops = parseStructuredEdits(block);
-    if (!ops.length) return;
+    if (!ops.length) return false;
     const context = getContext();
     const snapshot = readDatabaseSnapshot(context.chat);
-    if (!snapshot) return;
+    if (!snapshot) return false;
     applyEditsToSnapshot(snapshot, ops);
-    await writeSnapshotToChat(snapshot);
+    const saved = await writeSnapshotToChat(snapshot);
+    if (!saved) return false;
     lastSnapshot = snapshot;
     updatePromptInjection();
-    updateVisualizerPanel();
     renderBottomBar();
-    toastr.success(`已应用 ${ops.length} 条表格编辑`);
+    toastr.success(`Applied ${ops.length} state update${ops.length === 1 ? '' : 's'}.`);
+    return true;
 }
 
 // ── Format ────────────────────────────────────────────────────────────
@@ -453,7 +452,7 @@ function buildCurrentStateText() {
     }
     if (!sections.length) { lastFormattedText = ''; return ''; }
     const fullText = `[Current Protagonist State]\n\n${sections.join('\n\n')}`;
-    lastFormattedText = truncateText(fullText, settings.maxTotalLength || 2000);
+    lastFormattedText = fullText;
     return lastFormattedText;
 }
 
@@ -489,8 +488,6 @@ function formatTable(tableKey, rows) {
             return rows.map(r => `- ${r.item_name || 'Unnamed'} ${r.quantity != null ? `x${r.quantity}` : ''}${r.category ? ` [${r.category}]` : ''}: ${r.description || ''}`).join('\n');
         case 'quests_events':
             return rows.map(r => `- ${r.quest_name || 'Unnamed'}${r.quest_type ? ` [${r.quest_type}]` : ''}${r.current_progress ? ` - ${r.current_progress}` : ''}${r.reward ? ` | Reward: ${r.reward}` : ''}`).join('\n');
-        case 'chronicle':
-            return rows.slice(-3).map(r => `- ${r.code_index || ''} ${r.time_span || ''} ${r.location || ''}: ${r.summary || r.chronicle_text || ''}`).join('\n');
         case 'options': {
             const p = [];
             for (let i = 1; i <= 4; i++) if (r0[`option_${i}`]) p.push(`${i}. ${r0[`option_${i}`]}`);
@@ -506,6 +503,219 @@ function getCurrentStateTextForMemory() {
     return buildCurrentStateText();
 }
 
+function getTimelineContextForMemory() {
+    const fallback = { location: '未明确', currentTime: '未明确', previousTime: '未明确', elapsedTime: '未明确' };
+    try {
+        const snapshot = readDatabaseSnapshot(getContext().chat);
+        const sheet = snapshot?.[TABLE_TO_SHEET.global_state];
+        if (!sheet) return fallback;
+        const row = sheetContentToObjects(sheet, getEnglishColumns(sheet, 'global_state'))[0] || {};
+        return {
+            location: String(row.current_location || fallback.location),
+            currentTime: String(row.cur_time || fallback.currentTime),
+            previousTime: String(row.prev_scene_time || fallback.previousTime),
+            elapsedTime: String(row.elapsed_time || fallback.elapsedTime),
+        };
+    } catch (error) {
+        console.warn('[ProtagonistState] Failed to read timeline context:', error);
+        return fallback;
+    }
+}
+
+// ── State update API ──────────────────────────────────────────────────
+function buildStateUpdateSchema() {
+    return Object.values(SHEET_MAP).map(info => {
+        const columns = TABLE_COLUMNS[info.key] || [];
+        return `- ${info.key}: ${columns.join(', ')}`;
+    }).join('\n');
+}
+
+function buildStructuredStateForUpdate(snapshot) {
+    const tables = {};
+    for (const [sheetKey, info] of Object.entries(SHEET_MAP)) {
+        const sheet = snapshot?.[sheetKey];
+        if (!sheet) continue;
+        const columns = getEnglishColumns(sheet, info.key);
+        tables[info.key] = {
+            columns,
+            rows: sheetContentToObjects(sheet, columns),
+        };
+    }
+    return JSON.stringify(tables, null, 2);
+}
+
+function buildStateUpdateSystemPrompt() {
+    return `You update the protagonist-state database after a completed roleplay turn.
+
+Use only the exact table and English column names below. Keep existing row_id values when updating or deleting a row. For insertRow, omit row_id; it is assigned automatically.
+
+${buildStateUpdateSchema()}
+
+Return only one <tableEdit> block and no Markdown, explanation, or dialogue. Use one operation per line and strict JSON with double-quoted keys and string values:
+<tableEdit>
+updateRow('global_state', 1, {"current_location":"Market","cur_time":"2026-07-10 10:00"})
+insertRow('inventory', {"item_name":"Healing potion","quantity":"1","description":"Bought at the market","category":"Consumable"})
+deleteRow('quests_events', 3)
+</tableEdit>
+
+Only include changes clearly established by the supplied conversation history. Preserve all unrelated data. Do not infer or invent changes that are not in that history. If there is no state change, return exactly <tableEdit></tableEdit>.`;
+}
+
+function getStateUpdateTarget(context, messageId = null) {
+    const chat = context.chat || [];
+    let index = Number.isInteger(messageId) ? messageId : -1;
+    if (index < 0 || index >= chat.length) {
+        index = -1;
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const message = chat[i];
+            if (message && !message.is_user && !message.is_system && String(message.mes || '').trim()) {
+                index = i;
+                break;
+            }
+        }
+    }
+    const assistantMessage = chat[index];
+    if (!assistantMessage || assistantMessage.is_user || assistantMessage.is_system || !String(assistantMessage.mes || '').trim()) {
+        return null;
+    }
+
+    let userMessage = '';
+    for (let i = index - 1; i >= 0; i--) {
+        if (chat[i]?.is_user && String(chat[i].mes || '').trim()) {
+            userMessage = String(chat[i].mes).trim();
+            break;
+        }
+    }
+    return { index, assistantMessage, userMessage };
+}
+
+function selectUpdateHistoryMessages(chat, throughIndex, maxMessages) {
+    const history = (chat || []).slice(0, throughIndex + 1).filter(message => (
+        message && !message.is_system && String(message.mes || '').trim()
+    ));
+    const limit = Math.max(0, Number(maxMessages) || 0);
+    return limit === 0 ? history : history.slice(-limit);
+}
+
+function formatUpdateHistory(messages) {
+    if (!messages.length) return '(No user or assistant messages available)';
+    return messages.map(message => {
+        const role = message.is_user ? 'User' : 'Assistant';
+        return `[${role}]\n${String(message.mes).trim()}`;
+    }).join('\n\n');
+}
+
+function getMemorySummaryText() {
+    return String(window.memoryExtension?.getSummaryText?.() || '');
+}
+
+function buildStateUpdateRequestMessages(snapshot, context, target) {
+    const settings = { ...defaultSettings, ...(extension_settings.protagonistState || {}) };
+    const history = selectUpdateHistoryMessages(context.chat, target.index, settings.updateHistoryMessages);
+    const sections = [
+        `[Current structured state]\n${buildStructuredStateForUpdate(snapshot)}`,
+        `[Conversation history]\n${formatUpdateHistory(history)}`,
+    ];
+    const summary = settings.includeMemorySummary ? getMemorySummaryText().trim() : '';
+    if (summary) sections.push(`[Memory Summary]\n${summary}`);
+    return [
+        { role: 'system', content: buildStateUpdateSystemPrompt() },
+        { role: 'user', content: sections.join('\n\n') },
+    ];
+}
+
+function getMemoryApiSettings() {
+    return window.memoryExtension?.getSettings?.() || extension_settings.memory || null;
+}
+
+async function requestStateUpdate(messages) {
+    const memorySettings = getMemoryApiSettings();
+    if (!memorySettings) throw new Error('Configure the Summarize extension before updating protagonist state.');
+
+    if (memorySettings.source === 'main') {
+        return String(await generateRaw({
+            prompt: messages[1].content,
+            systemPrompt: messages[0].content,
+            responseLength: Number(memorySettings.overrideResponseLength) > 0 ? Number(memorySettings.overrideResponseLength) : null,
+        }));
+    }
+
+    if (memorySettings.source !== 'custom') {
+        throw new Error('The Summarize extension has an invalid API source.');
+    }
+
+    const customKey = memorySettings.custom_key || '';
+    const requestBody = {
+        chat_completion_source: 'custom',
+        custom_url: String(memorySettings.custom_url || '').replace(/\/+$/, ''),
+        custom_include_headers: customKey ? `Authorization: Bearer ${customKey}` : '',
+        model: memorySettings.custom_model || '',
+        messages,
+        temperature: Number(memorySettings.custom_temp),
+        stream: false,
+    };
+    if (Number(memorySettings.custom_max_tokens) > 0) {
+        requestBody.max_tokens = Number(memorySettings.custom_max_tokens);
+    }
+
+    const response = await fetch('/api/backends/chat-completions/generate', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify(requestBody),
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        throw new Error(errorData.error?.message || errorData.error || response.statusText);
+    }
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message || data.error);
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error('The state update API returned no content.');
+    return String(content);
+}
+
+let stateUpdateInProgress = false;
+
+async function updateStateForMessage(messageId = null, { force = false, quiet = false } = {}) {
+    if (stateUpdateInProgress) return false;
+    const context = getContext();
+    const target = getStateUpdateTarget(context, messageId);
+    if (!target) {
+        if (!quiet) toastr.warning('No completed assistant message is available for a state update.');
+        return false;
+    }
+    if (!force && target.assistantMessage.extra?.protagonist_state_updated) return false;
+
+    const snapshot = readDatabaseSnapshot(context.chat);
+    if (!snapshot) {
+        if (!quiet) toastr.warning('No protagonist-state snapshot is available in this chat.');
+        return false;
+    }
+
+    stateUpdateInProgress = true;
+    const toast = quiet ? null : toastr.info('Updating protagonist state...', 'Please wait', { timeOut: 0, extendedTimeOut: 0 });
+    try {
+        const messages = buildStateUpdateRequestMessages(snapshot, context, target);
+        const responseText = await requestStateUpdate(messages);
+        target.assistantMessage.extra = target.assistantMessage.extra || {};
+        target.assistantMessage.extra.protagonist_state_updated = Date.now();
+
+        const applied = await applyTableEditFromResponse(responseText);
+        if (!applied) {
+            await context.saveChat();
+            if (!quiet) toastr.info('No database changes were returned for this turn.');
+        }
+        return true;
+    } catch (error) {
+        console.error('[ProtagonistState] update failed:', error);
+        if (!quiet) toastr.error(error.message || String(error), 'State update failed');
+        return false;
+    } finally {
+        if (toast) toastr.clear(toast);
+        stateUpdateInProgress = false;
+    }
+}
+
 // ── Prompt injection ──────────────────────────────────────────────────
 function updatePromptInjection() {
     const settings = extension_settings.protagonistState;
@@ -519,22 +729,88 @@ function updatePromptInjection() {
 }
 const updatePromptInjectionDebounced = debounce(updatePromptInjection, debounce_timeout.default);
 
-// ── Visualizer panel (settings) ───────────────────────────────────────
-function updateVisualizerPanel() {
-    const text = buildCurrentStateText();
-    const $panel = $('#protagonist_state_panel_content');
-    if ($panel.length) $panel.text(text || 'No database state found.');
+// ── Bottom bar ────────────────────────────────────────────────────────
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[char]));
 }
 
-// ── Bottom bar ────────────────────────────────────────────────────────
-function renderBottomBar() {
+function getSelectedTableKeys(snapshot) {
+    const settings = extension_settings.protagonistState;
+    return Object.entries(SHEET_MAP)
+        .filter(([sheetKey, info]) => settings?.tables?.[info.key] && snapshot?.[sheetKey])
+        .map(([, info]) => info.key);
+}
+
+function renderEditableStateRecords(snapshot, tableKey, extraClass = '') {
+    const sheetKey = TABLE_TO_SHEET[tableKey];
+    const sheet = snapshot?.[sheetKey];
+    if (!sheet) return '<div class="ps_empty">此表无数据</div>';
+
+    const columns = getEnglishColumns(sheet, tableKey);
+    const content = getSheetRows(sheet);
+    const headers = Array.isArray(content[0]) ? content[0] : columns;
+    let html = `<div class="ps_state_records ${extraClass}">`;
+    for (let rowIndex = 1; rowIndex < content.length; rowIndex++) {
+        const row = content[rowIndex] || [];
+        const recordName = row[0] == null || row[0] === '' ? `记录 ${rowIndex}` : `记录 #${row[0]}`;
+        html += `<section class="ps_record_card" data-table="${tableKey}" data-row="${rowIndex}">
+            <div class="ps_record_header">
+                <span>${escapeHtml(recordName)}</span>
+                <span class="ps_row_delete" title="删除记录"><i class="fa-solid fa-trash"></i></span>
+            </div>
+            <div class="ps_record_fields">`;
+        columns.forEach((column, columnIndex) => {
+            if (column === 'row_id') return;
+            html += `<div class="ps_state_field">
+                <div class="ps_field_label">${escapeHtml(headers[columnIndex] ?? column)}</div>
+                <div contenteditable="true" class="ps_cell" data-col="${columnIndex}" data-colname="${column}">${escapeHtml(row[columnIndex])}</div>
+            </div>`;
+        });
+        html += '</div></section>';
+    }
+    if (content.length <= 1) html += '<div class="ps_empty">暂无记录，可新增一行。</div>';
+    html += '</div>';
+    html += `<div class="ps_table_actions"><span class="menu_button menu_button_icon ps_add_row" data-table="${tableKey}"><i class="fa-solid fa-plus"></i> 新增记录</span></div>`;
+    return html;
+}
+
+function ensureSheetContent(sheet, tableKey) {
+    const columns = getEnglishColumns(sheet, tableKey);
+    if (!Array.isArray(sheet.content) || !Array.isArray(sheet.content[0])) {
+        sheet.content = [columns];
+    }
+    return sheet.content;
+}
+
+function renderMemorySummaryCard() {
+    const summary = getMemorySummaryText().trim();
+    const content = summary ? escapeHtml(summary).replace(/\n/g, '<br>') : '<span class="ps_bottom_empty">暂无 Summary</span>';
+    return `<section class="ps_card ps_memory_card">
+        <div class="ps_card_title"><i class="fa-solid fa-book-open"></i> 剧情简介 / Memory Summary</div>
+        <div class="ps_card_body">${content}</div>
+    </section>`;
+}
+
+function refreshStateEditors(snapshot = lastSnapshot) {
+    if (!snapshot) return;
+    renderBottomBar(snapshot);
+    if ($('#protagonist_state_popup').is(':visible')) renderPopupBody(snapshot, true);
+}
+
+function renderBottomBar(snapshotOverride = null) {
     const settings = extension_settings.protagonistState;
     if (!settings?.showBottomBar) {
         $('#protagonist_state_bottom_bar').remove();
         return;
     }
     const context = getContext();
-    const snapshot = readDatabaseSnapshot(context.chat);
+    const snapshot = snapshotOverride || readDatabaseSnapshot(context.chat);
     let $bar = $('#protagonist_state_bottom_bar');
     if (!$bar.length) {
         $bar = $('<div id="protagonist_state_bottom_bar" class="protagonist_state_bottom_bar"></div>');
@@ -546,53 +822,52 @@ function renderBottomBar() {
         $bar.html('<div class="ps_bottom_header"><span class="ps_bottom_title"><i class="fa-solid fa-table-list"></i> 主角状态</span><span class="ps_bottom_empty">无状态数据</span></div>');
         return;
     }
+    lastSnapshot = snapshot;
 
-    const cards = [];
-    for (const tableKey of (settings.bottomBarTables || [])) {
-        const sheetKey = TABLE_TO_SHEET[tableKey];
-        if (!sheetKey || !snapshot[sheetKey]) continue;
-        const cols = getEnglishColumns(snapshot[sheetKey], tableKey);
-        const rows = sheetContentToObjects(snapshot[sheetKey], cols);
-        if (!rows.length) continue;
-        const formatted = formatTable(tableKey, rows);
-        if (!formatted.trim()) continue;
-        const icon = TABLE_ICONS[tableKey] || 'fa-table';
-        const name = SHEET_MAP[sheetKey].name;
-        cards.push({ name, icon, formatted });
+    const tableKeys = getSelectedTableKeys(snapshot);
+    if (!tableKeys.length) {
+        $bar.html('<div class="ps_bottom_header"><span class="ps_bottom_title"><i class="fa-solid fa-table-list"></i> 主角状态</span><span class="ps_bottom_empty">未勾选可显示的表</span></div>');
+        return;
     }
 
-    if (!cards.length) {
-        $bar.html('<div class="ps_bottom_header"><span class="ps_bottom_title"><i class="fa-solid fa-table-list"></i> 主角状态</span><span class="ps_bottom_empty">无勾选的表</span></div>');
-        return;
+    const summaries = [];
+    for (const tableKey of tableKeys) {
+        const sheetKey = TABLE_TO_SHEET[tableKey];
+        const cols = getEnglishColumns(snapshot[sheetKey], tableKey);
+        const rows = sheetContentToObjects(snapshot[sheetKey], cols);
+        const formatted = formatTable(tableKey, rows);
+        const name = SHEET_MAP[sheetKey].name;
+        summaries.push(`<b>${escapeHtml(name)}</b> ${escapeHtml(truncateText(formatted.replace(/\n/g, ' · '), 80) || '（空）')}`);
     }
 
     const chevronIcon = bottomBarExpanded ? 'fa-chevron-down' : 'fa-chevron-up';
 
     if (bottomBarExpanded) {
-        const cardsHtml = cards.map(c => {
-            const escaped = c.formatted.replace(/</g, '&lt;');
-            return `<div class="ps_card">
-                <div class="ps_card_title"><i class="fa-solid ${c.icon}"></i> ${c.name}</div>
-                <div class="ps_card_body">${escaped}</div>
-            </div>`;
+        const tablesHtml = tableKeys.map(tableKey => {
+            const sheetKey = TABLE_TO_SHEET[tableKey];
+            const info = SHEET_MAP[sheetKey];
+            const icon = TABLE_ICONS[tableKey] || 'fa-table';
+            return `<section class="ps_card ps_bottom_table_card">
+                <div class="ps_card_title"><i class="fa-solid ${icon}"></i> ${escapeHtml(info.name)}</div>
+                ${renderEditableStateRecords(snapshot, tableKey, 'ps_bottom_records')}
+            </section>`;
         }).join('');
         $bar.html(`
             <div class="ps_bottom_header" id="ps_bottom_header">
-                <span class="ps_bottom_title"><i class="fa-solid fa-table-list"></i> 主角状态</span>
+                <span class="ps_bottom_title"><i class="fa-solid fa-table-list"></i> 主角状态（可直接编辑）</span>
                 <span class="ps_bottom_actions">
                     <span id="ps_open_popup" class="menu_button menu_button_icon" title="打开编辑弹窗"><i class="fa-solid fa-table"></i></span>
                     <span id="ps_bottom_toggle" class="ps_bottom_toggle" title="收起"><i class="fa-solid ${chevronIcon}"></i></span>
                 </span>
             </div>
-            <div class="ps_bottom_expanded">${cardsHtml}</div>
+            <div class="ps_bottom_expanded">${tablesHtml}${renderMemorySummaryCard()}</div>
         `);
         $('#ps_open_popup').off('click').on('click', openStatePopup);
         $('#ps_bottom_toggle').off('click').on('click', () => { bottomBarExpanded = false; renderBottomBar(); });
     } else {
-        const summary = cards.map(c => `<b>${c.name}</b> ${truncateText(c.formatted.replace(/\n/g, ' · '), 80)}`).join('  ·  ');
         $bar.html(`
             <div class="ps_bottom_header" id="ps_bottom_header">
-                <span class="ps_bottom_collapsed">${summary}</span>
+                <span class="ps_bottom_collapsed">${summaries.join('  ·  ')}</span>
                 <span id="ps_bottom_toggle" class="ps_bottom_toggle" title="展开"><i class="fa-solid ${chevronIcon}"></i></span>
             </div>
         `);
@@ -613,48 +888,36 @@ function getFreshSnapshot() {
 }
 
 function renderPopupTable(snapshot, tableKey) {
-    const sheetKey = TABLE_TO_SHEET[tableKey];
-    if (!sheetKey || !snapshot || !snapshot[sheetKey]) {
-        return '<div class="ps_empty">此表无数据</div>';
-    }
-    const sheet = snapshot[sheetKey];
-    const cols = getEnglishColumns(sheet, tableKey);
-    const content = getSheetRows(sheet);
-    if (!content.length) return '<div class="ps_empty">此表无数据</div>';
-    const headers = content[0];
-    let html = '<table class="ps_table"><thead><tr>';
-    cols.forEach((c, i) => { html += `<th>${String(headers[i] ?? c).replace(/</g, '&lt;')}</th>`; });
-    html += '<th class="ps_row_actions_col">操作</th></tr></thead><tbody>';
-    for (let ri = 1; ri < content.length; ri++) {
-        const row = content[ri] || [];
-        const rowId = row[0];
-        html += `<tr data-table="${tableKey}" data-row="${ri}" data-rowid="${rowId}">`;
-        cols.forEach((c, ci) => {
-            const val = String(row[ci] ?? '').replace(/</g, '&lt;');
-            html += `<td contenteditable="true" class="ps_cell" data-col="${ci}" data-colname="${c}">${val}</td>`;
-        });
-        html += `<td class="ps_row_actions"><span class="ps_row_delete" title="删除行"><i class="fa-solid fa-trash"></i></span></td></tr>`;
-    }
-    html += '</tbody></table>';
-    html += `<div class="ps_table_actions"><span class="menu_button menu_button_icon ps_add_row" data-table="${tableKey}"><i class="fa-solid fa-plus"></i> 新增行</span></div>`;
-    return html;
+    return renderEditableStateRecords(snapshot, tableKey);
 }
 
 function renderPopupContent(snapshot) {
-    const tabs = ['<div class="ps_tabs">'];
+    const navigation = [];
+    const sections = [];
     for (const [sheetKey, info] of Object.entries(SHEET_MAP)) {
         const active = activePopupTab === info.key ? ' active' : '';
-        tabs.push(`<div class="ps_tab${active}" data-tab="${info.key}">${info.name}</div>`);
+        const icon = TABLE_ICONS[info.key] || 'fa-table';
+        const rowCount = Math.max(0, getSheetRows(snapshot?.[sheetKey]).length - 1);
+        navigation.push(`<button type="button" class="ps_nav_item${active}" data-section="${info.key}">
+            <i class="fa-solid ${icon}"></i><span>${escapeHtml(info.name)}</span><small>${rowCount}</small>
+        </button>`);
+        sections.push(`<section id="ps_popup_section_${info.key}" class="ps_popup_section" data-section="${info.key}">
+            <div class="ps_popup_section_header"><span><i class="fa-solid ${icon}"></i> ${escapeHtml(info.name)}</span><small>${rowCount} 条记录</small></div>
+            ${renderPopupTable(snapshot, info.key)}
+        </section>`);
     }
-    tabs.push(`<div class="ps_tab${activePopupTab === 'memory' ? ' active' : ''}" data-tab="memory">Memory</div>`);
-    tabs.push('</div>');
-    let body;
-    if (activePopupTab === 'memory') {
-        body = renderMemoryTab();
-    } else {
-        body = `<div class="ps_tab_body">${renderPopupTable(snapshot, activePopupTab)}</div>`;
-    }
-    return `<div class="ps_popup_root">${tabs.join('')}<div class="ps_tab_content">${body}</div></div>`;
+    const memoryActive = activePopupTab === 'memory' ? ' active' : '';
+    navigation.push(`<button type="button" class="ps_nav_item${memoryActive}" data-section="memory">
+        <i class="fa-solid fa-book-open"></i><span>Memory Summary</span>
+    </button>`);
+    sections.push(`<section id="ps_popup_section_memory" class="ps_popup_section" data-section="memory">
+        <div class="ps_popup_section_header"><span><i class="fa-solid fa-book-open"></i> 剧情简介 / Memory Summary</span></div>
+        ${renderMemoryTab()}
+    </section>`);
+    return `<div class="ps_popup_root">
+        <aside class="ps_popup_sidebar">${navigation.join('')}</aside>
+        <div class="ps_popup_content_scroll">${sections.join('')}</div>
+    </div>`;
 }
 
 function renderMemoryTab() {
@@ -668,6 +931,14 @@ function renderMemoryTab() {
         </div>
         <div class="ps_mem_summary">${escaped}</div>
     </div>`;
+}
+
+function renderPopupBody(snapshot, preserveScroll = false) {
+    const $body = $('#protagonist_state_popup .ps_popup_body');
+    if (!$body.length) return;
+    const scrollTop = preserveScroll ? $body.find('.ps_popup_content_scroll').scrollTop() : 0;
+    $body.html(renderPopupContent(snapshot));
+    $body.find('.ps_popup_content_scroll').scrollTop(scrollTop);
 }
 
 async function openStatePopup() {
@@ -690,7 +961,8 @@ async function openStatePopup() {
         makeDraggable($popup, $popup.find('.ps_popup_header'));
     }
     const snapshot = getFreshSnapshot();
-    $popup.find('.ps_popup_body').html(renderPopupContent(snapshot));
+    activePopupTab = 'global_state';
+    renderPopupBody(snapshot);
     $popup.show();
 }
 
@@ -712,12 +984,29 @@ function makeDraggable($el, $handle) {
     $(document).on('mouseup.ps_drag', function () { dragging = false; });
 }
 
+function setActivePopupSection(section) {
+    activePopupTab = section;
+    $('#protagonist_state_popup .ps_nav_item').each(function () {
+        $(this).toggleClass('active', $(this).data('section') === section);
+    });
+}
+
 function bindPopupEvents() {
-    $(document).off('.ps_popup').on('click.ps_popup', '.ps_tab', function () {
-        activePopupTab = $(this).data('tab');
-        const snapshot = lastSnapshot || getFreshSnapshot();
-        const $content = $('.ps_popup_root .ps_tab_content');
-        if ($content.length) $content.html(activePopupTab === 'memory' ? renderMemoryTab() : `<div class="ps_tab_body">${renderPopupTable(snapshot, activePopupTab)}</div>`);
+    $(document).off('.ps_popup').on('click.ps_popup', '.ps_nav_item', function () {
+        const section = $(this).data('section');
+        const $scrollArea = $(this).closest('.ps_popup_root').find('.ps_popup_content_scroll');
+        const $target = $scrollArea.find(`#ps_popup_section_${section}`);
+        if (!$target.length) return;
+        setActivePopupSection(section);
+        const targetTop = $target[0].getBoundingClientRect().top - $scrollArea[0].getBoundingClientRect().top + $scrollArea.scrollTop();
+        $scrollArea.stop(true).animate({ scrollTop: Math.max(0, targetTop - 10) }, 220);
+    }).on('scroll.ps_popup', '.ps_popup_content_scroll', function () {
+        const containerTop = this.getBoundingClientRect().top;
+        let active = 'global_state';
+        $(this).find('.ps_popup_section').each(function () {
+            if (this.getBoundingClientRect().top <= containerTop + 40) active = $(this).data('section');
+        });
+        setActivePopupSection(active);
     });
     $(document).on('click.ps_popup', '.ps_add_row', function () {
         const tableKey = $(this).data('table');
@@ -727,19 +1016,19 @@ function bindPopupEvents() {
         const sheet = snapshot[sheetKey];
         if (!sheet) return;
         const cols = getEnglishColumns(sheet, tableKey);
-        const content = Array.isArray(sheet.content) ? sheet.content : [['row_id']];
+        const content = ensureSheetContent(sheet, tableKey);
         const maxId = content.reduce((mx, r, i) => (i > 0 && r && r[0] != null ? Math.max(mx, Number(r[0]) || 0) : mx), 0);
         const newRow = new Array(cols.length).fill('');
         newRow[0] = maxId + 1;
         content.push(newRow);
         sheet.content = content;
         markDirty();
-        $('.ps_popup_root .ps_tab_content').html(`<div class="ps_tab_body">${renderPopupTable(snapshot, tableKey)}</div>`);
+        refreshStateEditors(snapshot);
     });
     $(document).on('click.ps_popup', '.ps_row_delete', function () {
-        const $tr = $(this).closest('tr');
-        const tableKey = $tr.data('table');
-        const ri = Number($tr.data('row'));
+        const $record = $(this).closest('.ps_record_card');
+        const tableKey = $record.data('table');
+        const ri = Number($record.data('row'));
         const snapshot = lastSnapshot;
         if (!snapshot) return;
         const sheetKey = TABLE_TO_SHEET[tableKey];
@@ -747,12 +1036,13 @@ function bindPopupEvents() {
         if (!sheet || !Array.isArray(sheet.content)) return;
         sheet.content.splice(ri, 1);
         markDirty();
-        $('.ps_popup_root .ps_tab_content').html(`<div class="ps_tab_body">${renderPopupTable(snapshot, tableKey)}</div>`);
+        refreshStateEditors(snapshot);
     });
     $(document).on('blur.ps_popup', '.ps_cell', function () {
         const $td = $(this);
-        const tableKey = $td.closest('tr').data('table');
-        const ri = Number($td.closest('tr').data('row'));
+        const $record = $td.closest('.ps_record_card');
+        const tableKey = $record.data('table');
+        const ri = Number($record.data('row'));
         const ci = Number($td.data('col'));
         const snapshot = lastSnapshot;
         if (!snapshot) return;
@@ -761,6 +1051,7 @@ function bindPopupEvents() {
         if (!sheet || !Array.isArray(sheet.content) || !sheet.content[ri]) return;
         sheet.content[ri][ci] = $td.text();
         markDirty();
+        renderBottomBar(snapshot);
     });
     $(document).on('click.ps_popup', '#ps_mem_summarize', async function () {
         const $btn = $(this);
@@ -768,10 +1059,11 @@ function bindPopupEvents() {
         try { await window.memoryExtension?.summarizeNow?.(false); }
         catch (e) { console.error(e); toastr.error('总结失败'); }
         finally { $btn.prop('disabled', false); }
-        $('.ps_popup_root .ps_tab_content').html(renderMemoryTab());
+        renderPopupBody(lastSnapshot || getFreshSnapshot(), true);
+        renderBottomBar();
     });
     $(document).on('click.ps_popup', '#ps_mem_refresh', function () {
-        $('.ps_popup_root .ps_tab_content').html(renderMemoryTab());
+        renderPopupBody(lastSnapshot || getFreshSnapshot(), true);
     });
 }
 
@@ -782,7 +1074,6 @@ const flushEditsDebounced = debounce(async () => {
     if (lastSnapshot) {
         await writeSnapshotToChat(lastSnapshot);
         updatePromptInjection();
-        updateVisualizerPanel();
         renderBottomBar();
     }
 }, 800);
@@ -792,46 +1083,74 @@ async function flushEdits() { if (dirty) { dirty = false; if (lastSnapshot) awai
 // ── Events ────────────────────────────────────────────────────────────
 function onChatChanged() {
     lastSnapshot = null; lastFormattedText = '';
-    updatePromptInjection(); updateVisualizerPanel(); renderBottomBar();
+    updatePromptInjection(); renderBottomBar();
     if ($('#protagonist_state_popup').is(':visible')) {
-        $('#protagonist_state_popup .ps_popup_body').html(renderPopupContent(getFreshSnapshot()));
+        renderPopupBody(getFreshSnapshot(), true);
     }
 }
-function onGenerationEnded(args) {
+function onGenerationEnded() {
     updatePromptInjectionDebounced();
-    updateVisualizerPanel();
     renderBottomBar();
-    if (args?.mes) applyTableEditFromResponse(args.mes);
+}
+
+function getAssistantTurnCount(chat, throughIndex) {
+    return chat.slice(0, throughIndex + 1).filter(message => (
+        message && !message.is_user && !message.is_system && String(message.mes || '').trim()
+    )).length;
+}
+
+async function onCharacterMessageRendered(messageId) {
+    onGenerationEnded();
+    const interval = Math.max(0, Number(extension_settings.protagonistState?.updateInterval) || 0);
+    if (interval === 0) return;
+
+    const context = getContext();
+    if (getAssistantTurnCount(context.chat || [], Number(messageId)) % interval !== 0) return;
+    await updateStateForMessage(Number(messageId), { quiet: true });
 }
 
 function onEnabledInput() { extension_settings.protagonistState.enabled = $(this).prop('checked'); saveSettings(); updatePromptInjection(); renderBottomBar(); }
 function onPositionChange() { extension_settings.protagonistState.position = Number($(this).val()); saveSettings(); updatePromptInjection(); }
 function onDepthInput() { extension_settings.protagonistState.depth = Number($(this).val()); saveSettings(); updatePromptInjection(); }
 function onRoleChange() { extension_settings.protagonistState.role = Number($(this).val()); saveSettings(); updatePromptInjection(); }
-function onMaxTotalLengthInput() { extension_settings.protagonistState.maxTotalLength = Number($(this).val()); saveSettings(); updatePromptInjection(); }
 function onProvideToMemoryInput() { extension_settings.protagonistState.provideToMemory = $(this).prop('checked'); saveSettings(); }
-function onAutoApplyTableEditInput() { extension_settings.protagonistState.autoApplyTableEdit = $(this).prop('checked'); saveSettings(); }
+function onUpdateIntervalInput() {
+    extension_settings.protagonistState.updateInterval = Math.max(0, Number($(this).val()) || 0);
+    $(this).val(extension_settings.protagonistState.updateInterval);
+    saveSettings();
+}
+function onUpdateHistoryMessagesInput() {
+    extension_settings.protagonistState.updateHistoryMessages = Math.max(0, Number($(this).val()) || 0);
+    $(this).val(extension_settings.protagonistState.updateHistoryMessages);
+    saveSettings();
+}
+function onIncludeMemorySummaryInput() {
+    extension_settings.protagonistState.includeMemorySummary = $(this).prop('checked');
+    saveSettings();
+}
 function onShowBottomBarInput() { extension_settings.protagonistState.showBottomBar = $(this).prop('checked'); saveSettings(); renderBottomBar(); }
-function onTableToggle() { const tk = $(this).data('table'); extension_settings.protagonistState.tables[tk] = $(this).prop('checked'); saveSettings(); updatePromptInjection(); updateVisualizerPanel(); }
-function onTableLimitInput() { const tk = $(this).data('table'); extension_settings.protagonistState.tableLimits[tk] = Number($(this).val()); saveSettings(); updatePromptInjection(); }
-function onRefreshClick() { updatePromptInjection(); updateVisualizerPanel(); renderBottomBar(); toastr.success('已刷新'); }
+function onTableToggle() { const tk = $(this).data('table'); extension_settings.protagonistState.tables[tk] = $(this).prop('checked'); saveSettings(); updatePromptInjection(); renderBottomBar(); }
+function onTableLimitInput() { const tk = $(this).data('table'); extension_settings.protagonistState.tableLimits[tk] = Number($(this).val()); saveSettings(); updatePromptInjection(); renderBottomBar(); }
 function onOpenPopupClick() { openStatePopup(); }
+async function onUpdateNowClick() { await updateStateForMessage(null, { force: true }); }
 
 function setupListeners() {
     $('#protagonist_state_enabled').off('input').on('input', onEnabledInput);
     $('#protagonist_state_position').off('change').on('change', onPositionChange);
     $('#protagonist_state_depth').off('input').on('input', onDepthInput);
     $('#protagonist_state_role').off('change').on('change', onRoleChange);
-    $('#protagonist_state_max_total_length').off('input').on('input', onMaxTotalLengthInput);
     $('#protagonist_state_provide_to_memory').off('input').on('input', onProvideToMemoryInput);
-    $('#protagonist_state_auto_apply_table_edit').off('input').on('input', onAutoApplyTableEditInput);
+    $('#protagonist_state_update_interval').off('input').on('input', onUpdateIntervalInput);
+    $('#protagonist_state_update_history_messages').off('input').on('input', onUpdateHistoryMessagesInput);
+    $('#protagonist_state_include_memory_summary').off('input').on('input', onIncludeMemorySummaryInput);
     $('#protagonist_state_show_bottom_bar').off('input').on('input', onShowBottomBarInput);
-    $('#protagonist_state_refresh').off('click').on('click', onRefreshClick);
     $('#protagonist_state_open_popup').off('click').on('click', onOpenPopupClick);
+    $('#protagonist_state_update_now').off('click').on('click', onUpdateNowClick);
     for (const tableKey of Object.keys(SHEET_MAP).map(k => SHEET_MAP[k].key)) {
         $(`#protagonist_state_table_${tableKey}`).off('input').on('input', onTableToggle);
         $(`#protagonist_state_limit_${tableKey}`).off('input').on('input', onTableLimitInput);
     }
+    $(document).off('input.ps_memory_summary', '#memory_contents').on('input.ps_memory_summary', '#memory_contents', () => renderBottomBar());
     bindPopupEvents();
 }
 
@@ -842,19 +1161,21 @@ export async function init() {
     setupListeners();
 
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
+    eventSource.makeLast(event_types.CHARACTER_MESSAGE_RENDERED, onCharacterMessageRendered);
     eventSource.on(event_types.GENERATION_ENDED, onGenerationEnded);
     eventSource.on(event_types.MESSAGE_DELETED, onGenerationEnded);
     eventSource.on(event_types.MESSAGE_SWIPED, onGenerationEnded);
 
     window.protagonistStateExtension = {
         getCurrentStateText: getCurrentStateTextForMemory,
+        getTimelineContext: getTimelineContextForMemory,
         getLastSnapshot: () => lastSnapshot,
         getSettings: () => extension_settings.protagonistState,
         openPopup: openStatePopup,
         applyTableEdit: applyTableEditFromResponse,
+        updateNow: () => updateStateForMessage(null, { force: true }),
     };
 
     updatePromptInjection();
-    updateVisualizerPanel();
     renderBottomBar();
 }

@@ -50,9 +50,10 @@ Jest test files live in `tests/` and cover: `util.test.js`, `prompt-converters.t
 
 ```bash
 node test-protagonist-state.mjs   # Protagonist State: DDL parsing, delta reconstruct, snapshot read
+node test-memory.mjs              # Memory: AM timeline numbering, normalization, cumulative batches
 ```
 
-The harness (`test-protagonist-state.mjs`) strips ESM imports, mocks browser globals, and exercises pure logic functions via `new Function()` eval.
+The harnesses strip ESM imports, mock browser globals, and exercise pure logic functions via `new Function()` eval.
 
 ## Architecture Overview
 
@@ -141,7 +142,9 @@ This fork optimizes for DeepSeek/Claude prefix-based caching:
 - DeepSeek cache-hit stats are logged to the server console as `[DeepSeek Cache]` in non-streaming mode (`src/endpoints/backends/chat-completions.js:1127`).
 - World Info entries default to `atDepth` with `depth = 0`; Memory, Author's Note, Vector Storage, and Protagonist State also default to `IN_CHAT @ Depth 0`.
 - **Forced migration:** Memory (`memory/index.js:164`) and Author's Note (`authors-note.js:300`) both force-migrate from `IN_PROMPT` to `IN_CHAT @ Depth 0` on load.
-- Memory role is force-migrated to `SYSTEM` (`memory/index.js:183`) for cache/prefix consistency, gated by `roleMigrationApplied` flag.
+- Memory role defaults and is one-time migrated to `ASSISTANT`, because a DeepSeek mid-chat System injection is recast as User. This preserves a separate dynamic role without moving Memory ahead of the cacheable history prefix.
+- **DeepSeek role limitation:** `sendDeepSeekRequest()` always applies `PROMPT_PROCESSING_TYPE.SEMI_TOOLS`. Its strict message merger converts every `system` message except the first one into `user`. Therefore an `IN_CHAT` prompt configured as System at any chat depth reaches the final DeepSeek payload as `user`; Assistant remains Assistant. This is backend behavior, not a stale extension setting.
+- **Custom prompt post-processing:** For the native DeepSeek source, keep `custom_prompt_post_processing` at `None`. DeepSeek already performs its own `SEMI_TOOLS` compatibility pass. The UI's Strict variants add a second role-reordering pass, including User placeholders, which can merge dynamic World Info/Summary content into User context. “With Tools” only preserves tool messages during that optional pass; it does not enable or disable function calling.
 
 ## Custom Extensions and Behaviors
 
@@ -152,13 +155,15 @@ Location: `public/scripts/extensions/memory/`
 - **Prompt builder:** Both Main API and Custom API use the same cumulative chunking loop (`getRawSummaryPrompt`).
 - **Custom API:** Routes through the shared backend at `/api/backends/chat-completions/generate`. Model fetching uses `/api/backends/chat-completions/status`. Custom API assumes 128K context (`memory/index.js:58`).
 - **Cumulative stages:** Each batch appends a new `[Stage N]` to the memory text. Later stages do **not** replace earlier stages.
+- **Timeline Chronicle Mode:** Enabled by default (`timelineMode`). Each new stage contains one `[AM####]` record with time span, location, a 300–400-character objective chronicle, up to three important dialogue entries, and a ≤40-character overview. The next AM code is derived from live Memory text and normalized on the response.
+- **Batch behavior:** The cumulative loop keeps its initial window start and expands the end each batch (for example `1–10`, then `1–20` plus previous Memory), preserving the cache-friendly full cumulative context strategy.
 - **Ranges:**
   - `manualSummarizeRange`: fixed lookback for manual "Summarize now".
   - `autoSummarizeRange`: fixed lookback for automatic summaries (interval/word-based).
   - `0` for either means "since the latest summary marker".
 - **Live textbox:** The summary injected into prompts and the summary context sent during summarization both follow the live `#memory_contents` value. If the textbox is empty, no previous summary is sent.
 - **Summary marker:** `mes.extra.memory` stores the summary on a chat message. Empty string (`''`) is treated as a valid marker position so clearing the textbox does not reset summarization state.
-- **Context injection:** The summary system prompt includes World Info / Author's Note, and optionally the protagonist state from the `protagonist-state` extension (via `window.protagonistStateExtension.getCurrentStateText()` at `memory/index.js:788`).
+- **Context injection:** The summary system prompt includes World Info / Author's Note, optional protagonist state, and in Timeline Chronicle Mode the current time/location fields from `window.protagonistStateExtension.getTimelineContext()`.
 - **External API:** Exposes `window.memoryExtension.{summarizeNow, getSummaryText, getSettings}` at `memory/index.js:1375` for the Protagonist State popup's Memory tab.
 
 ### Protagonist State Extension
@@ -168,12 +173,12 @@ Location: `public/scripts/extensions/protagonist-state/`
 - Ships with a `manifest.json` (v1.1.0, loading_order 10) and loads as a native SillyTavern extension. Self-contained: does NOT depend on the SP·数据库 III plugin running.
 - Reads tables from persisted snapshots in chat message tags (`msg.TavernDB_ACU_IsolatedData[isolationKey].independentData`); reconstructs delta-mode snapshots and auto-detects the isolation key.
 - Writes back: `writeSnapshotToChat()` writes a checkpoint snapshot to the latest non-user message's `TavernDB_ACU_IsolatedData` and calls `saveChat()`.
-- Parses `<tableEdit>` blocks from AI responses (structured `updateRow/insertRow/deleteRow` commands, not SQL) and applies them on `GENERATION_ENDED` when `autoApplyTableEdit` is on.
-- UI: a native `callGenericPopup` popup with tabs for all 8 tables + Memory; cells are `contenteditable`, rows can be added/deleted. A collapsible bottom bar (`#protagonist_state_bottom_bar`) shows a compact summary. Entry point in the extension settings drawer.
-- Formats all default tables (`global_state`, `protagonist_info`, `important_characters`, `protagonist_skills`, `inventory`, `quests_events`, `chronicle`, `options`).
+- Parses `<tableEdit>` blocks from its dedicated update API (structured `updateRow/insertRow/deleteRow` commands, not SQL) and can update manually or at the configured AI-response interval.
+- UI: a large draggable two-column popup with a sidebar and continuous editable record cards for all active tables + Memory. A collapsible bottom bar (`#protagonist_state_bottom_bar`) shows selected-table summaries.
+- Formats seven active tables (`global_state`, `protagonist_info`, `important_characters`, `protagonist_skills`, `inventory`, `quests_events`, `options`). Legacy `sheet_3NoMc1wI` chronicle data is deliberately hidden and excluded from prompt/API updates, but preserved unchanged whenever another table is checkpoint-saved.
 - The source data stores each sheet's `content` as a 2D array `[headerRow, dataRow, ...]` with **Chinese** headers. The extension parses each sheet's `sourceData.ddl` to recover English column names (`parseDDLColumns`); a hardcoded `TABLE_COLUMNS` fallback covers default tables if the DDL is missing.
 - Injects via `setExtensionPrompt()` at `IN_CHAT @ Depth 0` / `SYSTEM` by default. Prompt injection is truncated by per-table and total length limits; the popup shows full untruncated content.
-- Exposes `window.protagonistStateExtension.{getCurrentStateText, getLastSnapshot, getSettings, openPopup, applyTableEdit}` at `protagonist-state/index.js:790`. The `provideToMemory` setting gates whether Memory receives the state. Memory exposes `window.memoryExtension.{summarizeNow, getSummaryText, getSettings}` for the popup's Memory tab.
+- Exposes `window.protagonistStateExtension.{getCurrentStateText, getTimelineContext, getLastSnapshot, getSettings, openPopup, applyTableEdit}`. `getTimelineContext` always reads global time/location independently of display-table choices. The `provideToMemory` setting gates full state injection; Memory exposes `window.memoryExtension.{summarizeNow, getSummaryText, getSettings}` for the popup's Memory tab.
 - Logic tests (no browser needed): `node test-protagonist-state.mjs` from the repo root. The harness strips ESM imports, mocks browser globals, and exercises DDL parsing, 2D-array-to-object conversion, delta apply/reconstruct, isolation-key detection, and snapshot reading.
 
 ### SP·数据库 III (Database Reference) Plugin
@@ -184,6 +189,7 @@ Location: `数据库参考/index.js` (third-party bundled userscript/extension).
 - Stores an in-memory SQLite database; persistence is saved into chat message tags (`TavernDB_ACU_IsolatedData`).
 - Already injects readable data via World Info entries and direct prompt mutation on `CHAT_COMPLETION_SETTINGS_READY`.
 - Other extensions can read the persisted snapshots from `getContext().chat` but cannot access the live SQL connection directly.
+- New default templates no longer create a `chronicle` sheet or instruct the table-filling prompt to write one. Existing chronicle sheets are hidden from active sorting, prompt assembly, and visualization, while their raw data is carried through checkpoint/reorder operations unchanged.
 
 ## Repository Helper Scripts
 

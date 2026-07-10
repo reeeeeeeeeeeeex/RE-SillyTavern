@@ -18,10 +18,27 @@
                     <span>向 Memory 总结提供状态 / Provide state to Memory summary</span>
                 </label>
 
-                <label class="checkbox_label">
-                    <input id="protagonist_state_auto_apply_table_edit" type="checkbox" />
-                    <span>自动应用 AI 回复里的 &lt;tableEdit&gt; / Auto-apply &lt;tableEdit&gt; blocks</span>
-                </label>
+                <div class="flex-container flexFlowRow alignItemsCenter gap10px">
+                    <div id="protagonist_state_update_now" class="menu_button menu_button_icon" title="Use the Summarize extension's API configuration to update the latest assistant turn.">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                        <span>立即更新状态 / Update State Now</span>
+                    </div>
+                    <label for="protagonist_state_update_interval">
+                        自动更新频率: <input id="protagonist_state_update_interval" class="text_pole widthUnset" type="number" min="0" max="100" step="1" />
+                        <small>使用“总结”的 API 配置。0 = 仅手动；N = 每 N 个 AI 回复更新一次</small>
+                    </label>
+                </div>
+
+                <div class="flex-container flexFlowRow alignItemsCenter gap10px">
+                    <label for="protagonist_state_update_history_messages">
+                        更新上下文消息数: <input id="protagonist_state_update_history_messages" class="text_pole widthUnset" type="number" min="0" max="9999" step="1" />
+                        <small>0 = 从聊天开头发送；N = 最近 N 条用户/助手消息</small>
+                    </label>
+                    <label class="checkbox_label">
+                        <input id="protagonist_state_include_memory_summary" type="checkbox" />
+                        <span>发送 Memory Summary</span>
+                    </label>
+                </div>
 
                 <label class="checkbox_label">
                     <input id="protagonist_state_show_bottom_bar" type="checkbox" />
@@ -53,9 +70,6 @@
                     </select>
                 </div>
 
-                <label for="protagonist_state_max_total_length">
-                    总字数上限 / Max total length: <input id="protagonist_state_max_total_length" class="text_pole widthUnset" type="number" min="100" max="5000" step="100" />
-                </label>
             </div>
 
             <hr>
@@ -107,13 +121,6 @@
                     </div>
                     <div class="protagonist_state_table_row">
                         <label class="checkbox_label">
-                            <input id="protagonist_state_table_chronicle" data-table="chronicle" type="checkbox" />
-                            <span>纪要</span>
-                        </label>
-                        <label>字数上限: <input id="protagonist_state_limit_chronicle" data-table="chronicle" class="text_pole widthUnset" type="number" min="50" max="2000" step="50" /></label>
-                    </div>
-                    <div class="protagonist_state_table_row">
-                        <label class="checkbox_label">
                             <input id="protagonist_state_table_options" data-table="options" type="checkbox" />
                             <span>选项</span>
                         </label>
@@ -122,18 +129,6 @@
                 </div>
             </div>
 
-            <hr>
-
-            <div class="protagonist_state_section">
-                <div class="flex-container justifyspacebetween alignitemscenter">
-                    <h4>当前状态 / Current State</h4>
-                    <div id="protagonist_state_refresh" class="menu_button menu_button_icon" title="Refresh state from database">
-                        <i class="fa-solid fa-sync"></i>
-                        <span>Refresh</span>
-                    </div>
-                </div>
-                <pre id="protagonist_state_panel_content" class="protagonist_state_panel">No database state found. Make sure the database plugin has saved data to this chat.</pre>
-            </div>
         </div>
     </div>
 </div>

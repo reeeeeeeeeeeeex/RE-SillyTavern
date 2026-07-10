@@ -97,12 +97,89 @@ Rules:
 - Use objective third-person narration. NEVER use second-person pronouns such as "你", "你们", "your", or directly address the characters/reader.
 - Focus on plot progression, character actions, decisions, locations, relationships, and status changes.
 - Skip explicit sexual details; describe relationship developments factually and briefly.
-- Do NOT write scene narration, dialogue lines, or parenthetical descriptions like （...）.
+- Do NOT write scene narration or parenthetical descriptions like （...）.
 - Keep the summary compact, factual, and in the same language as the chat.
 - Use a consistent format every time: short bullet points or short paragraphs.
-- Limit your response to {{words}} words or less.
+- When Timeline Chronicle Mode is enabled, follow its per-field length limits; otherwise limit your response to {{words}} words or less.
 - Output only the summary, nothing else.`;
 const defaultTemplate = '[Summary: {{summary}}]';
+
+const TIMELINE_ENTRY_PATTERN = /\bAM(\d{4,})\b/gi;
+const TIMELINE_SUMMARY_CONTRACT = `
+[Timeline Chronicle Mode]
+Create exactly one new chronological record for this summary update. Do not rewrite, merge, or repeat prior records supplied as Previous summaries.
+
+Output only this record. Do not output <thought>, <content>, <tableEdit>, Markdown code fences, planning, or commentary:
+[AM0001]
+时间跨度：<use explicit in-story time from the supplied state or conversation; otherwise 未明确>
+地点：<use explicit location from the supplied state or conversation; otherwise 未明确>
+纪要：<300-400 Chinese characters; objective third-person factual account of the new plot, actions, causality, status and relationship changes>
+重要对话：
+- <speaker>：<0-3 only; retain only commitments, secrets, conflicts, relationship changes, or task-critical dialogue. Quote only text actually present; otherwise faithfully paraphrase without quotation marks.>
+概览：<at most 40 Chinese characters>
+
+Use the required AM code exactly. Never invent facts, dialogue, time, or location. Skip explicit sexual detail and describe relationship developments factually.`;
+
+function getNextTimelineCode(summaryText) {
+    let maximum = 0;
+    const text = String(summaryText || '');
+    let match;
+    TIMELINE_ENTRY_PATTERN.lastIndex = 0;
+    while ((match = TIMELINE_ENTRY_PATTERN.exec(text)) !== null) {
+        maximum = Math.max(maximum, Number(match[1]) || 0);
+    }
+    return `AM${String(maximum + 1).padStart(4, '0')}`;
+}
+
+function getTimelineStateContext() {
+    const fallback = { location: '未明确', currentTime: '未明确', previousTime: '未明确', elapsedTime: '未明确' };
+    try {
+        const value = window.protagonistStateExtension?.getTimelineContext?.();
+        if (!value || typeof value !== 'object') return fallback;
+        return {
+            location: String(value.location || fallback.location),
+            currentTime: String(value.currentTime || fallback.currentTime),
+            previousTime: String(value.previousTime || fallback.previousTime),
+            elapsedTime: String(value.elapsedTime || fallback.elapsedTime),
+        };
+    } catch (error) {
+        console.warn('[Memory] Failed to read protagonist timeline context:', error);
+        return fallback;
+    }
+}
+
+function buildTimelineSummaryContract(existingSummary) {
+    const timeline = getTimelineStateContext();
+    const nextCode = getNextTimelineCode(existingSummary);
+    return `${TIMELINE_SUMMARY_CONTRACT}
+
+[Required AM code]
+${nextCode}
+
+[Current timeline state]
+Location: ${timeline.location}
+Time: ${timeline.currentTime}
+Previous Time: ${timeline.previousTime}
+Elapsed: ${timeline.elapsedTime}`;
+}
+
+function normalizeTimelineSummary(summary, existingSummary) {
+    if (!extension_settings.memory.timelineMode) return String(summary || '').trim();
+    const nextCode = getNextTimelineCode(existingSummary);
+    let result = String(summary || '')
+        .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+        .replace(/<\/?content>/gi, '')
+        .replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '')
+        .replace(/```[\s\S]*?```/g, '')
+        .trim();
+    if (!result) return `[${nextCode}]`;
+    if (/\bAM\d{4,}\b/i.test(result)) {
+        result = result.replace(/\[?\bAM\d{4,}\b\]?/i, `[${nextCode}]`);
+    } else {
+        result = `[${nextCode}]\n${result}`;
+    }
+    return result;
+}
 
 const defaultSettings = {
     custom_url: 'http://127.0.0.1:5000/v1',
@@ -115,7 +192,9 @@ const defaultSettings = {
     prompt: defaultPrompt,
     template: defaultTemplate,
     position: extension_prompt_types.IN_CHAT,
-    role: extension_prompt_roles.SYSTEM,
+    // DeepSeek converts mid-chat system injections to user. Assistant keeps the
+    // Memory summary separate from user/world-info content at the same depth.
+    role: extension_prompt_roles.ASSISTANT,
     scan: false,
     depth: 0,
     promptWords: 200,
@@ -146,6 +225,7 @@ const defaultSettings = {
     autoSummarizeRangeMin: 0,
     autoSummarizeRangeMax: 10000,
     autoSummarizeRangeStep: 1,
+    timelineMode: true,
     prompt_builder: prompt_builders.DEFAULT,
 };
 
@@ -158,6 +238,12 @@ function loadSettings() {
     const previousDefaultPrompt = 'Ignore previous instructions. Summarize the most important facts and events in the recent chat messages below. This is an incremental summary, so do not include earlier events that are already summarized, just focus on the new developments. Limit the summary to {{words}} words or less. Your response should include nothing but the summary.';
     if (extension_settings.memory.prompt === oldDefaultPrompt || extension_settings.memory.prompt === previousDefaultPrompt) {
         extension_settings.memory.prompt = defaultPrompt;
+    }
+    // Upgrade the immediately previous built-in prompt without replacing user-authored wording.
+    if (extension_settings.memory.prompt.includes('Do NOT write scene narration, dialogue lines, or parenthetical descriptions like')) {
+        extension_settings.memory.prompt = extension_settings.memory.prompt
+            .replace('Do NOT write scene narration, dialogue lines, or parenthetical descriptions like', 'Do NOT write scene narration or parenthetical descriptions like')
+            .replace('Limit your response to {{words}} words or less.', 'When Timeline Chronicle Mode is enabled, follow its per-field length limits; otherwise limit your response to {{words}} words or less.');
     }
 
     // Force migration for cache optimization: Move memory insertion to bottom of chat
@@ -178,14 +264,25 @@ function loadSettings() {
         extension_settings.memory.role = defaultSettings.role;
     }
 
-    // One-time migration: force memory injection role to System for cache/prefix consistency.
-    // Users who explicitly want User/Assistant can change it back; this flag prevents re-migration.
+    // One-time migration: keep Memory as an assistant turn. DeepSeek's strict
+    // processor changes every mid-chat system message into user, while assistant
+    // messages survive unchanged and retain a stronger role boundary.
     if (!extension_settings.memory.roleMigrationApplied) {
         const currentRole = Number(extension_settings.memory.role);
-        if (currentRole === extension_prompt_roles.USER || !validRoles.includes(currentRole)) {
-            extension_settings.memory.role = extension_prompt_roles.SYSTEM;
+        if (currentRole === extension_prompt_roles.USER || currentRole === extension_prompt_roles.SYSTEM || !validRoles.includes(currentRole)) {
+            extension_settings.memory.role = extension_prompt_roles.ASSISTANT;
         }
         extension_settings.memory.roleMigrationApplied = true;
+    }
+
+    // Existing profiles already received the earlier System migration. Move them
+    // once to Assistant without changing the configured in-chat depth/position.
+    if (!extension_settings.memory.assistantRoleMigrationApplied) {
+        const currentRole = Number(extension_settings.memory.role);
+        if (currentRole === extension_prompt_roles.SYSTEM || currentRole === extension_prompt_roles.USER || !validRoles.includes(currentRole)) {
+            extension_settings.memory.role = extension_prompt_roles.ASSISTANT;
+        }
+        extension_settings.memory.assistantRoleMigrationApplied = true;
     }
 
     $('#summary_source').val(extension_settings.memory.source).trigger('change');
@@ -217,6 +314,7 @@ function loadSettings() {
     $('#memory_manual_summarize_range_value').val(extension_settings.memory.manualSummarizeRange);
     $('#memory_auto_summarize_range').val(extension_settings.memory.autoSummarizeRange);
     $('#memory_auto_summarize_range_value').val(extension_settings.memory.autoSummarizeRange);
+    $('#memory_timeline_mode').prop('checked', extension_settings.memory.timelineMode).trigger('input');
     $('#memory_include_wi_scan').prop('checked', extension_settings.memory.scan).trigger('input');
     switchSourceControls(extension_settings.memory.source);
 }
@@ -360,7 +458,7 @@ function onMemoryDepthInput() {
 function onMemoryRoleInput() {
     const value = Number($(this).val());
     const validRoles = Object.values(extension_prompt_roles);
-    extension_settings.memory.role = validRoles.includes(value) ? value : extension_prompt_roles.SYSTEM;
+    extension_settings.memory.role = validRoles.includes(value) ? value : defaultSettings.role;
     reinsertMemory();
     saveSettingsDebounced();
 }
@@ -416,6 +514,11 @@ function onAutoSummarizeRangeInput() {
     extension_settings.memory.autoSummarizeRange = Number(value);
     $('#memory_auto_summarize_range_value').val(extension_settings.memory.autoSummarizeRange);
     $('#memory_auto_summarize_range').val(extension_settings.memory.autoSummarizeRange);
+    saveSettingsDebounced();
+}
+
+function onTimelineModeInput() {
+    extension_settings.memory.timelineMode = Boolean($(this).prop('checked'));
     saveSettingsDebounced();
 }
 
@@ -775,7 +878,7 @@ async function getWorldInfoText(context) {
  * @param {string} wiText World Info / Author's Note text
  * @returns {string} Final system prompt
  */
-function buildSummarySystemPrompt(basePrompt, wiText) {
+function buildSummarySystemPrompt(basePrompt, wiText, existingSummary = '') {
     const sections = [];
 
     const wiTextTrimmed = (wiText || '').trim();
@@ -793,11 +896,11 @@ function buildSummarySystemPrompt(basePrompt, wiText) {
         console.warn('[Memory] Failed to read protagonist state:', e);
     }
 
-    if (!sections.length) {
-        return basePrompt;
+    if (extension_settings.memory.timelineMode) {
+        sections.push(buildTimelineSummaryContract(existingSummary));
     }
 
-    return `${sections.join('\n\n')}\n\n${basePrompt}`;
+    return sections.length ? `${sections.join('\n\n')}\n\n${basePrompt}` : basePrompt;
 }
 
 /**
@@ -816,7 +919,6 @@ async function summarizeChatCustom(context, force = false) {
     if (!basePrompt) return;
 
     const wiText = await getWorldInfoText(context);
-    const systemPrompt = buildSummarySystemPrompt(basePrompt, wiText);
 
     let explicitStartIndex = null;
 
@@ -840,6 +942,7 @@ async function summarizeChatCustom(context, force = false) {
     while (true) {
         const previousSummariesText = buildPreviousSummariesSection();
         const existingSummary = String($('#memory_contents').val() || '').trim();
+        const systemPrompt = buildSummarySystemPrompt(basePrompt, wiText, existingSummary);
 
         const { rawPrompt, lastUsedIndex, messageCount } = await getRawSummaryPrompt(
             context,
@@ -869,7 +972,7 @@ async function summarizeChatCustom(context, force = false) {
             ];
             const summary = await sendMemoryCustomApiRequest(messages);
 
-            const finalSummary = formatFinalSummary(summary, existingSummary);
+            const finalSummary = formatFinalSummary(normalizeTimelineSummary(summary, existingSummary), existingSummary);
             setMemoryContext(finalSummary, true, lastUsedIndex);
             console.log('[Memory Custom] Summary generated', summary);
 
@@ -899,7 +1002,6 @@ async function summarizeChatMain(context, force) {
     }
 
     const wiText = await getWorldInfoText(context);
-    const systemPrompt = buildSummarySystemPrompt(basePrompt, wiText);
 
     console.log('sending summary prompt');
 
@@ -930,6 +1032,7 @@ async function summarizeChatMain(context, force) {
 
         const previousSummariesText = buildPreviousSummariesSection();
         const existingSummary = String($('#memory_contents').val() || '').trim();
+        const systemPrompt = buildSummarySystemPrompt(basePrompt, wiText, existingSummary);
 
         try {
             inApiCall = true;
@@ -985,7 +1088,7 @@ async function summarizeChatMain(context, force) {
             if (isContextChanged(context)) {
                 break;
             }
-            const finalSummary = formatFinalSummary(summary, existingSummary);
+            const finalSummary = formatFinalSummary(normalizeTimelineSummary(summary, existingSummary), existingSummary);
             setMemoryContext(finalSummary, true, index);
 
             if (index >= context.chat.length - 2) {
@@ -1120,7 +1223,7 @@ function setMemoryContext(value, saveToMessage, index = null) {
     const validRoles = Object.values(extension_prompt_roles);
     const role = validRoles.includes(Number(extension_settings.memory.role))
         ? extension_settings.memory.role
-        : extension_prompt_roles.SYSTEM;
+        : defaultSettings.role;
     setExtensionPrompt(MODULE_NAME, formatMemoryValue(value), extension_settings.memory.position, extension_settings.memory.depth, extension_settings.memory.scan, role);
     $('#memory_contents').val(value);
 
@@ -1217,6 +1320,7 @@ function setupListeners() {
     $('#memory_max_messages_per_request, #memory_max_messages_per_request_value').off('input').on('input', onMaxMessagesPerRequestInput);
     $('#memory_manual_summarize_range, #memory_manual_summarize_range_value').off('input').on('input', onManualSummarizeRangeInput);
     $('#memory_auto_summarize_range, #memory_auto_summarize_range_value').off('input').on('input', onAutoSummarizeRangeInput);
+    $('#memory_timeline_mode').off('input').on('input', onTimelineModeInput);
     $('#memory_include_wi_scan').off('input').on('input', onMemoryIncludeWIScanInput);
     $('#summarySettingsBlockToggle').off('click').on('click', function () {
         document.getElementById('memory_advanced_modal').showModal();
