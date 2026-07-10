@@ -31,7 +31,7 @@ const mocks = {
     console,
 };
 
-const wrapped = `async () => { ${code}\nreturn { getNextTimelineCode, normalizeTimelineSummary, buildTimelineSummaryContract, formatFinalSummary, getRawSummaryPrompt, defaultSettings }; }`;
+const wrapped = `async () => { ${code}\nreturn { getTimelineChronicleLengthRange, normalizeTimelineSummary, buildTimelineSummaryContract, buildSummarySystemPrompt, getSummaryProgress, formatFinalSummary, getRawSummaryPrompt, defaultSettings }; }`;
 const mod = await new Function(...Object.keys(mocks), `return (${wrapped})();`)(...Object.values(mocks));
 
 let passed = 0;
@@ -50,38 +50,56 @@ test('defaults Memory injection to Assistant so DeepSeek does not recast it as U
     assert.strictEqual(mod.defaultSettings.role, 2);
 });
 
-test('starts AM numbering at AM0001 and continues from the highest existing code', () => {
-    assert.strictEqual(mod.getNextTimelineCode(''), 'AM0001');
-    assert.strictEqual(mod.getNextTimelineCode('[AM0002]\n[AM0011]\nAM0007'), 'AM0012');
+test('uses the target summary length only for the Chronicle body', () => {
+    const range = mod.getTimelineChronicleLengthRange();
+    assert.deepStrictEqual(range, { target: 200, minimum: 160, maximum: 240 });
 });
 
-test('normalizes a missing or incorrect AM code to the next code', () => {
-    const existing = '[Stage 1]: [AM0004]';
-    assert.ok(mod.normalizeTimelineSummary('纪要：新的事件', existing).startsWith('[AM0005]'));
-    assert.ok(mod.normalizeTimelineSummary('[AM0999]\n纪要：新的事件', existing).startsWith('[AM0005]'));
-    assert.ok(mod.normalizeTimelineSummary('AM0999\n纪要：新的事件', existing).startsWith('[AM0005]'));
+test('does not add or preserve an AM heading for new timeline entries', () => {
+    const result = mod.normalizeTimelineSummary('[AM0999]\n纪要：新的事件');
+    assert.strictEqual(result, '纪要：新的事件');
 });
 
 test('removes prohibited planner and table-edit wrappers without losing a content-wrapped timeline response', () => {
-    const value = mod.normalizeTimelineSummary('<thought>plan</thought>\n<tableEdit>insertRow()</tableEdit>\n<content>[AM0001]\n纪要：事件</content>', '');
+    const value = mod.normalizeTimelineSummary('<thought>plan</thought>\n<tableEdit>insertRow()</tableEdit>\n<content>[AM0001]\n纪要：事件</content>');
     assert.ok(!value.includes('<thought>'));
     assert.ok(!value.includes('<tableEdit>'));
-    assert.ok(value.startsWith('[AM0001]'));
+    assert.ok(!value.includes('AM0001'));
     assert.ok(value.includes('纪要：事件'));
 });
 
 test('builds the timeline contract with the required fields and state metadata', () => {
-    const prompt = mod.buildTimelineSummaryContract('[AM0003]');
-    assert.ok(prompt.includes('AM0004'));
-    assert.ok(prompt.includes('300-400 Chinese characters'));
+    const prompt = mod.buildTimelineSummaryContract();
+    assert.ok(!prompt.includes('[AM0001]'));
+    assert.ok(prompt.includes('about 200 Chinese characters'));
+    assert.ok(prompt.includes('acceptable range 160-240'));
     assert.ok(prompt.includes('重要对话'));
     assert.ok(prompt.includes('Location: Market'));
     assert.ok(prompt.includes('Time: 10:00'));
 });
 
-test('keeps the existing Stage wrapper around each timeline entry', () => {
-    assert.strictEqual(mod.formatFinalSummary('[AM0001]', ''), '[Stage 1]: [AM0001]');
-    assert.strictEqual(mod.formatFinalSummary('[AM0002]', '[Stage 1]: [AM0001]'), '[Stage 1]: [AM0001]\n\n[Stage 2]: [AM0002]');
+test('places the dynamic timeline constraint after a custom base prompt', () => {
+    const prompt = mod.buildSummarySystemPrompt('CUSTOM PROMPT', '', '');
+    assert.ok(prompt.indexOf('CUSTOM PROMPT') < prompt.indexOf('[Timeline Chronicle Mode]'));
+    assert.ok(prompt.includes('about 200 Chinese characters'));
+});
+
+test('keeps Stage as the sole wrapper around each timeline entry', () => {
+    assert.strictEqual(mod.formatFinalSummary('纪要：第一段', ''), '[Stage 1]: 纪要：第一段');
+    assert.strictEqual(mod.formatFinalSummary('纪要：第二段', '[Stage 1]: 纪要：第一段'), '[Stage 1]: 纪要：第一段\n\n[Stage 2]: 纪要：第二段');
+});
+
+test('counts automatic update frequency by assistant replies after the latest summary marker', () => {
+    const progress = mod.getSummaryProgress([
+        { is_user: true, mes: '旧用户消息' },
+        { is_user: false, mes: '旧助手消息', extra: { memory: '[Stage 1]: 旧纪要' } },
+        { is_user: true, mes: '新用户消息一' },
+        { is_user: false, mes: '新助手消息一' },
+        { is_user: true, mes: '新用户消息二' },
+        { is_user: false, mes: '新助手消息二' },
+        { is_system: true, mes: '系统消息不计入' },
+    ]);
+    assert.strictEqual(progress.assistantTurnsSinceLastSummary, 2);
 });
 
 await testAsync('keeps the cumulative window start while expanding its end and includes prior Memory', async () => {
@@ -90,12 +108,12 @@ await testAsync('keeps the cumulative window start while expanding its end and i
         { name: 'Assistant', mes: 'm4' }, { name: 'User', mes: 'm5' },
     ];
     const first = await mod.getRawSummaryPrompt({ chat }, 'system', 0, 1, '');
-    const expanded = await mod.getRawSummaryPrompt({ chat }, 'system', 0, 3, '[Previous summaries]\n[AM0001]');
+    const expanded = await mod.getRawSummaryPrompt({ chat }, 'system', 0, 3, '[Previous summaries]\n[Stage 1]: 旧纪要');
     assert.strictEqual(first.messageCount, 2);
     assert.strictEqual(expanded.messageCount, 4);
     assert.ok(expanded.rawPrompt.includes('m1'));
     assert.ok(expanded.rawPrompt.includes('m4'));
-    assert.ok(expanded.rawPrompt.includes('[AM0001]'));
+    assert.ok(expanded.rawPrompt.includes('[Stage 1]: 旧纪要'));
 });
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);

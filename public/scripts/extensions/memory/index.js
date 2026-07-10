@@ -3,7 +3,6 @@ import { getContext, extension_settings, renderExtensionTemplateAsync } from '..
 import {
     activateSendButtons,
     deactivateSendButtons,
-    animation_duration,
     eventSource,
     event_types,
     extension_prompt_roles,
@@ -16,11 +15,9 @@ import {
     getRequestHeaders,
     setExtensionPrompt,
     streamingProcessor,
-    animation_easing,
 } from '../../../script.js';
 import { is_group_generating, selected_group } from '../../group-chats.js';
-import { loadMovingUIState, power_user } from '../../power-user.js';
-import { dragElement } from '../../RossAscends-mods.js';
+import { power_user } from '../../power-user.js';
 import { getTokenCountAsync } from '../../tokenizers.js';
 import { getWorldInfoPrompt } from '../../world-info.js';
 import { debounce_timeout } from '../../constants.js';
@@ -38,6 +35,7 @@ const MODULE_NAME = '1_memory';
 let lastMessageHash = null;
 let lastMessageId = null;
 let inApiCall = false;
+let autoSummaryPending = false;
 
 /**
  * Count the number of tokens in the provided text.
@@ -100,35 +98,28 @@ Rules:
 - Do NOT write scene narration or parenthetical descriptions like （...）.
 - Keep the summary compact, factual, and in the same language as the chat.
 - Use a consistent format every time: short bullet points or short paragraphs.
-- When Timeline Chronicle Mode is enabled, follow its per-field length limits; otherwise limit your response to {{words}} words or less.
+- When Timeline Chronicle Mode is enabled, follow its required fields and use the configured target length for the Chronicle field only; otherwise limit your response to {{words}} words or less.
 - Output only the summary, nothing else.`;
 const defaultTemplate = '[Summary: {{summary}}]';
 
-const TIMELINE_ENTRY_PATTERN = /\bAM(\d{4,})\b/gi;
 const TIMELINE_SUMMARY_CONTRACT = `
 [Timeline Chronicle Mode]
 Create exactly one new chronological record for this summary update. Do not rewrite, merge, or repeat prior records supplied as Previous summaries.
 
 Output only this record. Do not output <thought>, <content>, <tableEdit>, Markdown code fences, planning, or commentary:
-[AM0001]
 时间跨度：<use explicit in-story time from the supplied state or conversation; otherwise 未明确>
 地点：<use explicit location from the supplied state or conversation; otherwise 未明确>
-纪要：<300-400 Chinese characters; objective third-person factual account of the new plot, actions, causality, status and relationship changes>
+纪要：<about {{target}} Chinese characters; acceptable range {{minimum}}-{{maximum}}; objective third-person factual account of the new plot, actions, causality, status and relationship changes. This length applies only to the Chronicle field.>
 重要对话：
 - <speaker>：<0-3 only; retain only commitments, secrets, conflicts, relationship changes, or task-critical dialogue. Quote only text actually present; otherwise faithfully paraphrase without quotation marks.>
 概览：<at most 40 Chinese characters>
 
-Use the required AM code exactly. Never invent facts, dialogue, time, or location. Skip explicit sexual detail and describe relationship developments factually.`;
+Do not add an AM code, a separate heading, or a Stage label. The host app adds the single [Stage N] wrapper. Never invent facts, dialogue, time, or location. Skip explicit sexual detail and describe relationship developments factually.`;
 
-function getNextTimelineCode(summaryText) {
-    let maximum = 0;
-    const text = String(summaryText || '');
-    let match;
-    TIMELINE_ENTRY_PATTERN.lastIndex = 0;
-    while ((match = TIMELINE_ENTRY_PATTERN.exec(text)) !== null) {
-        maximum = Math.max(maximum, Number(match[1]) || 0);
-    }
-    return `AM${String(maximum + 1).padStart(4, '0')}`;
+function getTimelineChronicleLengthRange() {
+    const target = Math.max(1, Number(extension_settings.memory.promptWords) || defaultSettings.promptWords);
+    const tolerance = Math.max(10, Math.round(target * 0.2));
+    return { target, minimum: Math.max(1, target - tolerance), maximum: target + tolerance };
 }
 
 function getTimelineStateContext() {
@@ -148,13 +139,14 @@ function getTimelineStateContext() {
     }
 }
 
-function buildTimelineSummaryContract(existingSummary) {
+function buildTimelineSummaryContract() {
     const timeline = getTimelineStateContext();
-    const nextCode = getNextTimelineCode(existingSummary);
-    return `${TIMELINE_SUMMARY_CONTRACT}
-
-[Required AM code]
-${nextCode}
+    const { target, minimum, maximum } = getTimelineChronicleLengthRange();
+    const contract = TIMELINE_SUMMARY_CONTRACT
+        .replace('{{target}}', String(target))
+        .replace('{{minimum}}', String(minimum))
+        .replace('{{maximum}}', String(maximum));
+    return `${contract}
 
 [Current timeline state]
 Location: ${timeline.location}
@@ -163,22 +155,16 @@ Previous Time: ${timeline.previousTime}
 Elapsed: ${timeline.elapsedTime}`;
 }
 
-function normalizeTimelineSummary(summary, existingSummary) {
+function normalizeTimelineSummary(summary) {
     if (!extension_settings.memory.timelineMode) return String(summary || '').trim();
-    const nextCode = getNextTimelineCode(existingSummary);
-    let result = String(summary || '')
+    return String(summary || '')
         .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
         .replace(/<\/?content>/gi, '')
         .replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '')
         .replace(/```[\s\S]*?```/g, '')
+        // Do not perpetuate an AM heading if a model follows an older prompt.
+        .replace(/^\s*\[?AM\d{4,}\]?\s*(?:\r?\n)?/i, '')
         .trim();
-    if (!result) return `[${nextCode}]`;
-    if (/\bAM\d{4,}\b/i.test(result)) {
-        result = result.replace(/\[?\bAM\d{4,}\b\]?/i, `[${nextCode}]`);
-    } else {
-        result = `[${nextCode}]\n${result}`;
-    }
-    return result;
 }
 
 const defaultSettings = {
@@ -243,7 +229,7 @@ function loadSettings() {
     if (extension_settings.memory.prompt.includes('Do NOT write scene narration, dialogue lines, or parenthetical descriptions like')) {
         extension_settings.memory.prompt = extension_settings.memory.prompt
             .replace('Do NOT write scene narration, dialogue lines, or parenthetical descriptions like', 'Do NOT write scene narration or parenthetical descriptions like')
-            .replace('Limit your response to {{words}} words or less.', 'When Timeline Chronicle Mode is enabled, follow its per-field length limits; otherwise limit your response to {{words}} words or less.');
+            .replace('Limit your response to {{words}} words or less.', 'When Timeline Chronicle Mode is enabled, use the configured target length for the Chronicle field only; otherwise limit your response to {{words}} words or less.');
     }
 
     // Force migration for cache optimization: Move memory insertion to bottom of chat
@@ -293,7 +279,7 @@ function loadSettings() {
     $('#memory_custom_api_temp_value').val(extension_settings.memory.custom_temp);
     $('#memory_custom_api_max_tokens').val(extension_settings.memory.custom_max_tokens).trigger('input');
     $('#memory_custom_api_max_tokens_value').val(extension_settings.memory.custom_max_tokens);
-    $('#memory_frozen').prop('checked', extension_settings.memory.memoryFrozen).trigger('input');
+    $('#memory_frozen, #memory_frozen_panel').prop('checked', extension_settings.memory.memoryFrozen).trigger('input');
     $('#memory_prompt').val(extension_settings.memory.prompt).trigger('input');
     $('#memory_prompt_words').val(extension_settings.memory.promptWords).trigger('input');
     $('#memory_prompt_words_value').val(extension_settings.memory.promptWords);
@@ -403,15 +389,17 @@ function onSummarySourceChange(event) {
 }
 
 function switchSourceControls(value) {
-    $('#summaryExtensionDrawerContents [data-summary-source], #memory_settings [data-summary-source], #memory_advanced_modal [data-summary-source]').each((_, element) => {
+    $('#memory_manager_popup [data-summary-source]').each((_, element) => {
         const source = element.dataset.summarySource.split(',').map(s => s.trim());
         $(element).toggle(source.includes(value));
     });
+    $('#memory_manager_popup .memory_nav_custom').toggle(value === summary_sources.custom);
 }
 
 function onMemoryFrozenInput() {
     const value = Boolean($(this).prop('checked'));
     extension_settings.memory.memoryFrozen = value;
+    $('#memory_frozen, #memory_frozen_panel').prop('checked', value);
     saveSettingsDebounced();
 }
 
@@ -583,8 +571,37 @@ function isContextChanged(context) {
 
 function onChatChanged() {
     const context = getContext();
+    lastMessageHash = null;
+    lastMessageId = null;
+    autoSummaryPending = false;
     const latestMemory = getLatestMemoryFromChat(context.chat);
     setMemoryContext(latestMemory, false);
+}
+
+function getSummaryProgress(chat) {
+    let assistantTurnsSinceLastSummary = 0;
+    let wordsSinceLastSummary = 0;
+
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const mes = chat[i];
+        const hasMemoryMarker = mes.extra
+            && mes.extra.memory !== undefined
+            && mes.extra.memory !== null;
+        if (hasMemoryMarker) {
+            break;
+        }
+
+        if (mes.is_system || !mes.mes) {
+            continue;
+        }
+
+        wordsSinceLastSummary += extractAllWords(mes.mes).length;
+        if (!mes.is_user) {
+            assistantTurnsSinceLastSummary++;
+        }
+    }
+
+    return { assistantTurnsSinceLastSummary, wordsSinceLastSummary };
 }
 
 async function onChatEvent() {
@@ -594,7 +611,7 @@ async function onChatEvent() {
     }
 
     // Currently summarizing or frozen state - skip
-    if (inApiCall || extension_settings.memory.memoryFrozen) {
+    if (autoSummaryPending || inApiCall || extension_settings.memory.memoryFrozen) {
         return;
     }
 
@@ -625,11 +642,13 @@ async function onChatEvent() {
         delete lastMessage.extra.memory;
     }
 
+    autoSummaryPending = true;
     summarizeChat(context)
         .catch(console.error)
         .finally(() => {
             lastMessageId = context.chat?.length ?? null;
             lastMessageHash = getStringHash((context.chat.length && context.chat[context.chat.length - 1].mes) ?? '');
+            autoSummaryPending = false;
         });
 }
 
@@ -703,13 +722,11 @@ async function summarizeCallback(args, text) {
 async function summarizeChat(context) {
     switch (extension_settings.memory.source) {
         case summary_sources.custom:
-            await summarizeChatCustom(context);
-            break;
+            return await summarizeChatCustom(context);
         case summary_sources.main:
-            await summarizeChatMain(context, false);
-            break;
+            return await summarizeChatMain(context, false);
         default:
-            break;
+            return '';
     }
 }
 
@@ -721,8 +738,10 @@ async function summarizeChat(context) {
  * @returns {Promise<string>} Summary prompt or empty string
  */
 async function getSummaryPromptForNow(context, force) {
-    if (extension_settings.memory.promptInterval === 0 && !force) {
-        console.debug('Prompt interval is set to 0, skipping summarization');
+    const turnInterval = Number(extension_settings.memory.promptInterval) || 0;
+    const wordInterval = Number(extension_settings.memory.promptForceWords) || 0;
+    if (turnInterval === 0 && wordInterval === 0 && !force) {
+        console.debug('Both automatic summary intervals are set to 0, skipping summarization');
         return '';
     }
 
@@ -743,40 +762,16 @@ async function getSummaryPromptForNow(context, force) {
         return '';
     }
 
-    if (context.chat.length < extension_settings.memory.promptInterval && !force) {
-        console.debug(`Not enough messages in chat to summarize (chat: ${context.chat.length}, interval: ${extension_settings.memory.promptInterval})`);
-        return '';
-    }
-
-    let messagesSinceLastSummary = 0;
-    let wordsSinceLastSummary = 0;
-    let conditionSatisfied = false;
-    for (let i = context.chat.length - 1; i >= 0; i--) {
-        const mes = context.chat[i];
-        const hasMemoryMarker = mes.extra
-            && mes.extra.memory !== undefined
-            && mes.extra.memory !== null;
-        if (hasMemoryMarker) {
-            break;
-        }
-        messagesSinceLastSummary++;
-        wordsSinceLastSummary += extractAllWords(mes.mes).length;
-    }
-
-    if (messagesSinceLastSummary >= extension_settings.memory.promptInterval) {
-        conditionSatisfied = true;
-    }
-
-    if (extension_settings.memory.promptForceWords && wordsSinceLastSummary >= extension_settings.memory.promptForceWords) {
-        conditionSatisfied = true;
-    }
+    const { assistantTurnsSinceLastSummary, wordsSinceLastSummary } = getSummaryProgress(context.chat);
+    const conditionSatisfied = (turnInterval > 0 && assistantTurnsSinceLastSummary >= turnInterval)
+        || (wordInterval > 0 && wordsSinceLastSummary >= wordInterval);
 
     if (!conditionSatisfied && !force) {
-        console.debug(`Summary conditions not satisfied (messages: ${messagesSinceLastSummary}, interval: ${extension_settings.memory.promptInterval}, words: ${wordsSinceLastSummary}, force words: ${extension_settings.memory.promptForceWords})`);
+        console.debug(`Summary conditions not satisfied (assistant turns: ${assistantTurnsSinceLastSummary}, interval: ${turnInterval}, words: ${wordsSinceLastSummary}, force words: ${wordInterval})`);
         return '';
     }
 
-    console.log('Summarizing chat, messages since last summary: ' + messagesSinceLastSummary, 'words since last summary: ' + wordsSinceLastSummary);
+    console.log('Summarizing chat, assistant turns since last summary: ' + assistantTurnsSinceLastSummary, 'words since last summary: ' + wordsSinceLastSummary);
     const prompt = substituteParamsExtended(extension_settings.memory.prompt, { words: extension_settings.memory.promptWords });
 
     if (!prompt) {
@@ -896,11 +891,17 @@ function buildSummarySystemPrompt(basePrompt, wiText, existingSummary = '') {
         console.warn('[Memory] Failed to read protagonist state:', e);
     }
 
+    if (basePrompt) {
+        sections.push(basePrompt);
+    }
+
+    // Keep the structural format and length constraint last so it remains
+    // authoritative even when the user has customized the base prompt.
     if (extension_settings.memory.timelineMode) {
         sections.push(buildTimelineSummaryContract(existingSummary));
     }
 
-    return sections.length ? `${sections.join('\n\n')}\n\n${basePrompt}` : basePrompt;
+    return sections.join('\n\n');
 }
 
 /**
@@ -938,6 +939,7 @@ async function summarizeChatCustom(context, force = false) {
         : 10;
     let currentEndIndex = windowStart + batchSize - 1;
     let previousLastUsedIndex = -1;
+    let latestSummary = '';
 
     while (true) {
         const previousSummariesText = buildPreviousSummariesSection();
@@ -974,6 +976,7 @@ async function summarizeChatCustom(context, force = false) {
 
             const finalSummary = formatFinalSummary(normalizeTimelineSummary(summary, existingSummary), existingSummary);
             setMemoryContext(finalSummary, true, lastUsedIndex);
+            latestSummary = finalSummary;
             console.log('[Memory Custom] Summary generated', summary);
 
             // Check if we caught up to the end of the chat (excluding the very last message)
@@ -992,6 +995,8 @@ async function summarizeChatCustom(context, force = false) {
             inApiCall = false;
         }
     }
+
+    return latestSummary;
 }
 
 async function summarizeChatMain(context, force) {
@@ -1023,6 +1028,7 @@ async function summarizeChatMain(context, force) {
         : 10;
     let currentEndIndex = windowStart + batchSize - 1;
     let previousLastUsedIndex = -1;
+    let latestSummary = '';
 
     while (true) {
         let summary = '';
@@ -1090,6 +1096,7 @@ async function summarizeChatMain(context, force) {
             }
             const finalSummary = formatFinalSummary(normalizeTimelineSummary(summary, existingSummary), existingSummary);
             setMemoryContext(finalSummary, true, index);
+            latestSummary = finalSummary;
 
             if (index >= context.chat.length - 2) {
                 break;
@@ -1101,6 +1108,8 @@ async function summarizeChatMain(context, force) {
             break;
         }
     }
+
+    return latestSummary;
 }
 
 /**
@@ -1246,60 +1255,70 @@ function setMemoryContext(value, saveToMessage, index = null) {
     }
 }
 
-function doPopout(e) {
-    const target = e.target;
-    //repurposes the zoomed avatar template to server as a floating div
-    if ($('#summaryExtensionPopout').length === 0) {
-        console.debug('did not see popout yet, creating');
-        const originalHTMLClone = $(target).parent().parent().parent().find('.inline-drawer-content').html();
-        const originalElement = $(target).parent().parent().parent().find('.inline-drawer-content');
-        const template = $('#zoomed_avatar_template').html();
-        const controlBarHtml = `<div class="panelControlBar flex-container">
-        <div id="summaryExtensionPopoutheader" class="fa-solid fa-grip drag-grabber hoverglow"></div>
-        <div id="summaryExtensionPopoutClose" class="fa-solid fa-circle-xmark hoverglow dragClose"></div>
-    </div>`;
-        const newElement = $(template);
-        newElement.attr('id', 'summaryExtensionPopout')
-            .css('opacity', 0)
-            .removeClass('zoomed_avatar')
-            .addClass('draggable')
-            .empty();
-        const prevSummaryBoxContents = $('#memory_contents').val().toString(); //copy summary box before emptying
-        originalElement.empty();
-        originalElement.html('<div class="flex-container alignitemscenter justifyCenter wide100p"><small>Currently popped out</small></div>');
-        newElement.append(controlBarHtml).append(originalHTMLClone);
-        $('#movingDivs').append(newElement);
-        newElement.transition({ opacity: 1, duration: animation_duration, easing: animation_easing });
-        $('#summaryExtensionDrawerContents').addClass('scrollableInnerFull');
-        setMemoryContext(prevSummaryBoxContents, false); //paste prev summary box contents into popout box
-        setupListeners();
-        loadSettings();
-        loadMovingUIState();
+function closeMemoryManager() {
+    $('#memory_manager_popup').removeClass('visible').attr('aria-hidden', 'true');
+}
 
-        dragElement(newElement);
+function scrollMemoryManagerTo(section, smooth = true) {
+    const $scrollArea = $('#memory_manager_popup .memory_manager_scroll');
+    const $target = $scrollArea.find(`#memory_section_${section}`);
+    if (!$target.length) return;
+    $('#memory_manager_popup .memory_nav_item').removeClass('active');
+    $(`#memory_manager_popup .memory_nav_item[data-section="${section}"]`).addClass('active');
+    const top = $target[0].getBoundingClientRect().top - $scrollArea[0].getBoundingClientRect().top + $scrollArea.scrollTop();
+    $scrollArea.stop(true).animate({ scrollTop: Math.max(0, top - 12) }, smooth ? 220 : 0);
+}
 
-        //setup listener for close button to restore extensions menu
-        $('#summaryExtensionPopoutClose').off('click').on('click', function () {
-            $('#summaryExtensionDrawerContents').removeClass('scrollableInnerFull');
-            const summaryPopoutHTML = $('#summaryExtensionDrawerContents');
-            $('#summaryExtensionPopout').fadeOut(animation_duration, () => {
-                originalElement.empty();
-                originalElement.append(summaryPopoutHTML);
-                $('#summaryExtensionPopout').remove();
-            });
-            loadSettings();
+function openMemoryManager(section = 'summary') {
+    const $popup = $('#memory_manager_popup');
+    if (!$popup.length) return;
+    loadSettings();
+    $popup.addClass('visible').attr('aria-hidden', 'false');
+    setTimeout(() => scrollMemoryManagerTo(section, false), 0);
+}
+
+function setupMemoryManagerEvents() {
+    $('#memory_manager_close').off('click').on('click', closeMemoryManager);
+    $('#memory_manager_summarize').off('click').on('click', () => forceSummarizeChat(false));
+    $('#memory_manager_popup').off('click.memory-manager', '.memory_nav_item').on('click.memory-manager', '.memory_nav_item', function () {
+        scrollMemoryManagerTo($(this).data('section'));
+    }).off('scroll.memory-manager', '.memory_manager_scroll').on('scroll.memory-manager', '.memory_manager_scroll', function () {
+        const containerTop = this.getBoundingClientRect().top;
+        let active = 'summary';
+        $(this).find('.memory_manager_section:visible').each(function () {
+            if (this.getBoundingClientRect().top <= containerTop + 50) active = $(this).data('section');
         });
-    } else {
-        console.debug('saw existing popout, removing');
-        $('#summaryExtensionPopout').fadeOut(animation_duration, () => { $('#summaryExtensionPopoutClose').trigger('click'); });
-    }
+        $('#memory_manager_popup .memory_nav_item').removeClass('active');
+        $(`#memory_manager_popup .memory_nav_item[data-section="${active}"]`).addClass('active');
+    });
+
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let originX = 0;
+    let originY = 0;
+    $('#memory_manager_popup .memory_manager_header').off('mousedown.memory-manager').on('mousedown.memory-manager', function (event) {
+        if ($(event.target).closest('button').length) return;
+        const $popup = $('#memory_manager_popup');
+        const rect = $popup[0].getBoundingClientRect();
+        dragging = true;
+        startX = event.clientX;
+        startY = event.clientY;
+        originX = rect.left;
+        originY = rect.top;
+        $popup.css({ left: `${originX}px`, top: `${originY}px`, transform: 'none' });
+        event.preventDefault();
+    });
+    $(document).off('mousemove.memory-manager mouseup.memory-manager').on('mousemove.memory-manager', function (event) {
+        if (!dragging) return;
+        $('#memory_manager_popup').css({ left: `${originX + event.clientX - startX}px`, top: `${originY + event.clientY - startY}px` });
+    }).on('mouseup.memory-manager', function () { dragging = false; });
 }
 
 function setupListeners() {
-    //setup shared listeners for popout and regular ext menu
     $('#memory_restore').off('click').on('click', onMemoryRestoreClick);
     $('#memory_contents').off('input').on('input', onMemoryContentInput);
-    $('#memory_frozen').off('input').on('input', onMemoryFrozenInput);
+    $('#memory_frozen, #memory_frozen_panel').off('input').on('input', onMemoryFrozenInput);
     $('#summary_source').off('change').on('change', onSummarySourceChange);
     $('#memory_prompt_words, #memory_prompt_words_value').off('input').on('input', onMemoryPromptWordsInput);
     $('#memory_prompt_interval, #memory_prompt_interval_value').off('input').on('input', onMemoryPromptIntervalInput);
@@ -1322,11 +1341,9 @@ function setupListeners() {
     $('#memory_auto_summarize_range, #memory_auto_summarize_range_value').off('input').on('input', onAutoSummarizeRangeInput);
     $('#memory_timeline_mode').off('input').on('input', onTimelineModeInput);
     $('#memory_include_wi_scan').off('input').on('input', onMemoryIncludeWIScanInput);
-    $('#summarySettingsBlockToggle').off('click').on('click', function () {
-        document.getElementById('memory_advanced_modal').showModal();
-    });
-    $('#memory_advanced_modal_close').off('click').on('click', function () {
-        document.getElementById('memory_advanced_modal').close();
+    $('#summarySettingsBlockToggle, #summaryExtensionOpenPanelButton').off('click').on('click', function (event) {
+        openMemoryManager();
+        event.stopPropagation();
     });
     $('#memory_custom_api_url').on('input', function() { extension_settings.memory.custom_url = $(this).val(); saveSettingsDebounced(); });
     $('#memory_custom_api_key').on('input', function() { extension_settings.memory.custom_key = $(this).val(); saveSettingsDebounced(); });
@@ -1388,35 +1405,35 @@ function setupListeners() {
             const models = data.models || data.data || (Array.isArray(data) ? data : []);
             const select = $('#memory_custom_api_model_select');
             select.empty();
-            select.append(`<option value="">(Select model...)</option>`);
+            select.append(`<option value="">（选择模型）</option>`);
             models.forEach(m => {
                 const id = typeof m === 'string' ? m : m.id;
                 if (id) {
                     select.append(`<option value="${id}">${id}</option>`);
                 }
             });
-            toastr.success('Models fetched');
+            toastr.success('模型列表已获取');
         } catch(e) {
-            toastr.error('Fetch Models Failed: ' + e.message);
+            toastr.error('获取模型失败：' + e.message);
         } finally {
             $(this).removeClass('disabled');
         }
     });
 
-    // Move the modal to the body to prevent stacking context/overflow issues inside the extensions menu
-    if ($('#memory_advanced_modal').length) {
-        $(document.body).append($('#memory_advanced_modal'));
-    }
+    setupMemoryManagerEvents();
 }
 
 export async function init() {
     async function addExtensionControls() {
         const settingsHtml = await renderExtensionTemplateAsync('memory', 'settings', { defaultSettings });
         $('#summarize_container').append(settingsHtml);
+        $(document.body).append($('#memory_manager_popup'));
         setupListeners();
-        $('#summaryExtensionPopoutButton').off('click').on('click', function (e) {
-            doPopout(e);
-            e.stopPropagation();
+        $('#memory_wand_button').remove();
+        $('#extensionsMenu').append(`<div id="memory_wand_button" class="extension_container"><div id="memory_wand_item" class="list-group-item flex-container flexGap5" title="打开总结面板"><div class="fa-fw fa-solid fa-book-open extensionsMenuExtensionButton"></div><span>总结</span></div></div>`);
+        $('#memory_wand_item').on('click', function (event) {
+            openMemoryManager();
+            event.stopPropagation();
         });
     }
 
@@ -1424,6 +1441,10 @@ export async function init() {
     loadSettings();
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
     eventSource.makeLast(event_types.CHARACTER_MESSAGE_RENDERED, onChatEvent);
+    // CHARACTER_MESSAGE_RENDERED is the usual trigger. GENERATION_ENDED is a
+    // fallback for streaming paths that finish rendering before their processor
+    // reports a completed state. autoSummaryPending prevents a duplicate run.
+    eventSource.makeLast(event_types.GENERATION_ENDED, onChatEvent);
     for (const event of [event_types.MESSAGE_DELETED, event_types.MESSAGE_UPDATED, event_types.MESSAGE_SWIPED]) {
         eventSource.on(event, onChatEvent);
     }

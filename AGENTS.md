@@ -155,15 +155,17 @@ Location: `public/scripts/extensions/memory/`
 - **Prompt builder:** Both Main API and Custom API use the same cumulative chunking loop (`getRawSummaryPrompt`).
 - **Custom API:** Routes through the shared backend at `/api/backends/chat-completions/generate`. Model fetching uses `/api/backends/chat-completions/status`. Custom API assumes 128K context (`memory/index.js:58`).
 - **Cumulative stages:** Each batch appends a new `[Stage N]` to the memory text. Later stages do **not** replace earlier stages.
-- **Timeline Chronicle Mode:** Enabled by default (`timelineMode`). Each new stage contains one `[AM####]` record with time span, location, a 300–400-character objective chronicle, up to three important dialogue entries, and a ≤40-character overview. The next AM code is derived from live Memory text and normalized on the response.
+- **Timeline Chronicle Mode:** Enabled by default (`timelineMode`). Each new `[Stage N]` contains one record with time span, location, an objective chronicle, up to three important dialogue entries, and a ≤40-character overview. It never emits an AM code. `promptWords` controls only the Chronicle field's target Chinese-character count (±20%); the other fields do not consume that allowance.
 - **Batch behavior:** The cumulative loop keeps its initial window start and expands the end each batch (for example `1–10`, then `1–20` plus previous Memory), preserving the cache-friendly full cumulative context strategy.
 - **Ranges:**
   - `manualSummarizeRange`: fixed lookback for manual "Summarize now".
   - `autoSummarizeRange`: fixed lookback for automatic summaries (interval/word-based).
   - `0` for either means "since the latest summary marker".
+- **Automatic frequency:** `promptInterval` counts assistant replies (rounds) since the latest Summary marker, not all chat messages. The extension checks both `CHARACTER_MESSAGE_RENDERED` and `GENERATION_ENDED`; a pending guard prevents duplicate requests. A non-zero word interval can trigger independently even when the round interval is `0`.
 - **Live textbox:** The summary injected into prompts and the summary context sent during summarization both follow the live `#memory_contents` value. If the textbox is empty, no previous summary is sent.
 - **Summary marker:** `mes.extra.memory` stores the summary on a chat message. Empty string (`''`) is treated as a valid marker position so clearing the textbox does not reset summarization state.
 - **Context injection:** The summary system prompt includes World Info / Author's Note, optional protagonist state, and in Timeline Chronicle Mode the current time/location fields from `window.protagonistStateExtension.getTimelineContext()`.
+- **Summary UI:** The extension drawer provides only quick actions. The editable Summary and all generation, prompt, frequency, injection, and Custom API settings live in `#memory_manager_popup`, a draggable large panel with sidebar navigation. The same panel is available from the lower-left Extensions (magic-wand) menu via `#memory_wand_item`.
 - **External API:** Exposes `window.memoryExtension.{summarizeNow, getSummaryText, getSettings}` at `memory/index.js:1375` for the Protagonist State popup's Memory tab.
 
 ### Protagonist State Extension

@@ -2,208 +2,111 @@
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
             <div class="flex-container alignitemscenter margin0">
-                <b data-i18n="ext_sum_title">Summarize</b>
-                <i id="summaryExtensionPopoutButton" class="fa-solid fa-window-restore menu_button margin0"></i>
+                <b>总结 / Memory</b>
+                <i id="summaryExtensionOpenPanelButton" class="fa-solid fa-window-restore menu_button margin0" title="打开总结面板"></i>
             </div>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <div id="summaryExtensionDrawerContents">
-                <label for="summary_source" data-i18n="ext_sum_with">Summarize with:</label>
-                <select id="summary_source" class="text_pole">
-                    <option value="main" data-i18n="ext_sum_main_api">Main API</option>
-                    <option value="custom">Custom API (OpenAI Compatible)</option>
-                </select><br>
-
-                <div class="flex-container justifyspacebetween alignitemscenter">
-                    <span data-i18n="ext_sum_current_summary">Current summary:</span>
-                    <i class="editor_maximize fa-solid fa-maximize right_menu_button" data-for="memory_contents" title="Expand the editor" data-i18n="[title]Expand the editor"></i>
-                    <span class="flex1">&nbsp;</span>
-                    <div id="memory_restore" class="menu_button margin0" data-i18n="[title]ext_sum_restore_tip" title="Restore a previous summary; use repeatedly to clear summarization state for this chat.">
-                        <small data-i18n="ext_sum_restore_previous">Restore Previous</small>
-                    </div>
-                </div>
-
-                <textarea id="memory_contents" class="text_pole textarea_compact" rows="6" data-i18n="[placeholder]ext_sum_memory_placeholder" placeholder="Summary will be generated here..."></textarea>
+            <div class="memory_drawer_quick_actions">
+                <div class="memory_drawer_hint">在大面板中查看、编辑时间线纪要与全部设置。</div>
                 <div class="memory_contents_controls">
-                    <div id="memory_force_summarize"  class="menu_button menu_button_icon" title="Trigger a summary update right now." data-i18n="[title]ext_sum_force_tip">
-                        <i class="fa-solid fa-database"></i>
-                        <span data-i18n="ext_sum_force_text">Summarize now</span>
+                    <div id="memory_force_summarize" class="menu_button menu_button_icon" title="立即请求一次总结更新">
+                        <i class="fa-solid fa-bolt"></i><span>立即总结</span>
                     </div>
-                    <label for="memory_frozen" title="Disable automatic summary updates. While paused, the summary remains as-is. You can still force an update by pressing the Summarize now button." data-i18n="[title]Disable automatic summary updates. While paused, the summary remains as-is. You can still force an update by pressing the Summarize now button."><input id="memory_frozen" type="checkbox" /><span data-i18n="ext_sum_pause">Pause</span></label>
+                    <label for="memory_frozen" title="暂停后不再自动更新；仍可手动总结。"><input id="memory_frozen" type="checkbox" /><span>暂停自动更新</span></label>
                 </div>
-                <div class="memory_contents_controls">
-                    <div id="summarySettingsBlockToggle" class="menu_button menu_button_icon" data-i18n="[title]ext_sum_settings_tip" title="Open Advanced Summary Configuration">
-                        <i class="fa-solid fa-cog"></i>
-                        <span>Advanced Summary Settings</span>
-                    </div>
-                </div>
+                <button id="summarySettingsBlockToggle" type="button" class="menu_button menu_button_icon memory_open_panel_button">
+                    <i class="fa-solid fa-book-open"></i><span>打开总结面板</span>
+                </button>
             </div>
         </div>
     </div>
 </div>
 
-<dialog id="memory_advanced_modal" class="popup wider_dialogue_popup vertical_scrolling_dialogue_popup">
-    <div class="popup-body">
-        <div class="popup-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <h3 style="margin: 0;">Advanced Summary Settings</h3>
-            <div id="memory_advanced_modal_close" class="right_menu_button fa-solid fa-circle-xmark" style="font-size: 24px; cursor: pointer; opacity: 0.7;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7"></div>
-        </div>
-        <div class="popup-content">
-            <div id="memory_custom_api_settings" data-summary-source="custom">
-                <h4>Custom API Configuration</h4>
-                <div class="flex-container gap10px flexFlowColumn">
-                    <div class="flex-container flexFlowRow alignItemsCenter">
-                        <label for="memory_custom_api_url" class="flex1">API URL</label>
-                        <input id="memory_custom_api_url" type="text" class="text_pole" placeholder="http://127.0.0.1:5000/v1" />
-                    </div>
-                    <div class="flex-container flexFlowRow alignItemsCenter">
-                        <label for="memory_custom_api_key" class="flex1">API Key</label>
-                        <input id="memory_custom_api_key" type="password" class="text_pole" placeholder="sk-..." />
-                        <div id="memory_custom_api_key_toggle" class="right_menu_button fa-solid fa-eye" title="Toggle Visibility"></div>
-                    </div>
-                    <div class="flex-container flexFlowRow alignItemsCenter gap10px">
-                        <div id="memory_custom_api_fetch_models" class="menu_button menu_button_icon">
-                            <i class="fa-solid fa-sync"></i>
-                            <span>Fetch Models</span>
-                        </div>
-                        <select id="memory_custom_api_model_select" class="text_pole flex1">
-                            <option value="">(Select or type below)</option>
-                        </select>
-                    </div>
-                    <div class="flex-container flexFlowRow alignItemsCenter">
-                        <label for="memory_custom_api_model" class="flex1">Model ID</label>
-                        <input id="memory_custom_api_model" type="text" class="text_pole" placeholder="Model ID..." />
-                    </div>
-                    <hr>
-                    <h4>Generation Parameters</h4>
-                    <label for="memory_custom_api_temp">
-                        <span>Temperature</span> (<input id="memory_custom_api_temp_value" class="text_pole widthUnset" type="number" min="0" max="2" step="0.01" />)
-                    </label>
-                    <input id="memory_custom_api_temp" type="range" min="0" max="2" step="0.01" value="0.5" />
-                    <label for="memory_custom_api_max_tokens">
-                        <span>Max Output Tokens</span> (<input id="memory_custom_api_max_tokens_value" class="text_pole widthUnset" type="number" min="0" max="50000" step="1" />)
-                        <small class="memory_disabled_hint">0 = Uncapped</small>
-                    </label>
-                    <input id="memory_custom_api_max_tokens" type="range" min="0" max="50000" step="1" value="50000" />
-                </div>
-                <hr>
-            </div>
-            
-            <div id="summarySettingsBlock">
-                    <div data-summary-source="main">
-                        <label data-i18n="ext_sum_prompt_builder">
-                            Prompt builder
-                        </label>
-                        <label class="checkbox_label" for="memory_prompt_builder_raw_blocking" data-i18n="[title]ext_sum_prompt_builder_1_desc" title="Extension will build its own prompt using messages that were not summarized yet. Blocks the chat until the summary is generated.">
-                            <input id="memory_prompt_builder_raw_blocking" type="radio" name="memory_prompt_builder" value="1" />
-                            <span data-i18n="ext_sum_prompt_builder_1">Raw, blocking</span>
-                        </label>
-                        <label class="checkbox_label" for="memory_prompt_builder_raw_non_blocking" data-i18n="[title]ext_sum_prompt_builder_2_desc" title="Extension will build its own prompt using messages that were not summarized yet. Does not block the chat while the summary is being generated. Not all backends support this mode.">
-                            <input id="memory_prompt_builder_raw_non_blocking" type="radio" name="memory_prompt_builder" value="2" />
-                            <span data-i18n="ext_sum_prompt_builder_2">Raw, non-blocking</span>
-                        </label>
-                        <label class="checkbox_label" id="memory_prompt_builder_default" data-i18n="[title]ext_sum_prompt_builder_3_desc" title="Extension will use the regular main prompt builder and add the summary request to it as the last system message.">
-                            <input id="memory_prompt_builder_default" type="radio" name="memory_prompt_builder" value="0" />
-                            <span data-i18n="ext_sum_prompt_builder_3">Classic, blocking</span>
-                        </label>
-                    </div>
-                    <div >
-                        <label class="checkbox_label" for="memory_timeline_mode" title="Create one detailed AM timeline record for each Summary update.">
-                            <input id="memory_timeline_mode" type="checkbox" />
-                            <span>时间线纪要模式 / Timeline Chronicle Mode</span>
-                        </label>
-                        <label for="memory_prompt" class="title_restorable">
-                            <span data-i18n="Summary Prompt">Summary Prompt</span>
-                            <div id="memory_prompt_restore" data-i18n="[title]ext_sum_restore_default_prompt_tip" title="Restore default prompt" class="right_menu_button">
-                                <div class="fa-solid fa-clock-rotate-left"></div>
-                            </div>
-                        </label>
-                        <textarea id="memory_prompt" class="text_pole textarea_compact" rows="6" data-i18n="[placeholder]ext_sum_prompt_placeholder" placeholder="This prompt will be sent to AI to request the summary generation. &lcub;&lcub;words&rcub;&rcub; will resolve to the 'Number of words' parameter."></textarea>
-                        <label for="memory_prompt_words"><span data-i18n="ext_sum_target_length_1">Target summary length</span> <span data-i18n="ext_sum_target_length_2">(</span><input id="memory_prompt_words_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinWords}}" max="{{defaultSettings.promptMaxWords}}" step="{{defaultSettings.promptWordsStep}}" /><span data-i18n="ext_sum_target_length_3"> words)</span></label>
-                        <input id="memory_prompt_words" type="range" value="{{defaultSettings.promptWords}}" min="{{defaultSettings.promptMinWords}}" max="{{defaultSettings.promptMaxWords}}" step="{{defaultSettings.promptWordsStep}}" />
-                        <label for="memory_override_response_length">
-                            <span data-i18n="ext_sum_api_response_length_1">API response length</span> <span data-i18n="ext_sum_api_response_length_2">(</span><input id="memory_override_response_length_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.overrideResponseLengthMin}}" max="{{defaultSettings.overrideResponseLengthMax}}" step="{{defaultSettings.overrideResponseLengthStep}}" /><span data-i18n="ext_sum_api_response_length_3"> tokens)</span>
-                            <small class="memory_disabled_hint" data-i18n="ext_sum_0_default">0 = default</small>
-                        </label>
-                        <input id="memory_override_response_length" type="range" value="{{defaultSettings.overrideResponseLength}}" min="{{defaultSettings.overrideResponseLengthMin}}" max="{{defaultSettings.overrideResponseLengthMax}}" step="{{defaultSettings.overrideResponseLengthStep}}" />
-                                                  <label for="memory_manual_summarize_range">
-                              <span>Manual Summarize Range (Total Lookback)</span> <input id="memory_manual_summarize_range_value" class="text_pole widthUnset" type="number" min="0" max="10000" />
-                              <small class="memory_disabled_hint">0 = Auto (since last summary)</small>
-                          </label>
-                          <input id="memory_manual_summarize_range" type="range" value="{{defaultSettings.manualSummarizeRange}}" min="{{defaultSettings.manualSummarizeRangeMin}}" max="{{defaultSettings.manualSummarizeRangeMax}}" step="{{defaultSettings.manualSummarizeRangeStep}}" />
-                          <label for="memory_auto_summarize_range">
-                              <span>Auto Summarize Range (Total Lookback)</span> <input id="memory_auto_summarize_range_value" class="text_pole widthUnset" type="number" min="0" max="10000" />
-                              <small class="memory_disabled_hint">0 = Auto (since last summary)</small>
-                          </label>
-                          <input id="memory_auto_summarize_range" type="range" value="{{defaultSettings.autoSummarizeRange}}" min="{{defaultSettings.autoSummarizeRangeMin}}" max="{{defaultSettings.autoSummarizeRangeMax}}" step="{{defaultSettings.autoSummarizeRangeStep}}" />
-                          <label for="memory_max_messages_per_request">
-                            <span>Max Messages per Batch (Chunk Size)</span> (<input id="memory_max_messages_per_request_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" />)
-                            <small class="memory_disabled_hint" data-i18n="ext_sum_0_unlimited">0 = unlimited</small>
-                        </label>
-                        <input id="memory_max_messages_per_request" type="range" value="{{defaultSettings.maxMessagesPerRequest}}" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" />
-                        <h4 data-i18n="Update frequency" class="textAlignCenter">
-                            Update frequency
-                        </h4>
-                        <label for="memory_prompt_interval" class="title_restorable">
-                            <span>
-                                <span data-i18n="ext_sum_update_every_messages_1">Update every</span> <input id="memory_prompt_interval_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinInterval}}" max="{{defaultSettings.promptMaxInterval}}" step="{{defaultSettings.promptIntervalStep}}" /><span data-i18n="ext_sum_update_every_messages_2"> messages</span>
-                                <small class="memory_disabled_hint" data-i18n="ext_sum_0_disable">0 = disable</small>
-                            </span>
-                            <div id="memory_prompt_interval_auto" data-i18n="[title]ext_sum_auto_adjust_desc" title="Try to automatically adjust the interval based on the chat metrics." class="right_menu_button">
-                                <div class="fa-solid fa-wand-magic-sparkles"></div>
-                            </div>
-                        </label>
-                        <input id="memory_prompt_interval" type="range" value="{{defaultSettings.promptInterval}}" min="{{defaultSettings.promptMinInterval}}" max="{{defaultSettings.promptMaxInterval}}" step="{{defaultSettings.promptIntervalStep}}" />
-                        <label for="memory_prompt_words_force" class="title_restorable">
-                            <span>
-                                <span data-i18n="ext_sum_update_every_words_1">Update every</span> <input id="memory_prompt_words_force_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinForceWords}}" max="{{defaultSettings.promptMaxForceWords}}" step="{{defaultSettings.promptForceWordsStep}}" /><span data-i18n="ext_sum_update_every_words_2"> words</span>
-                                <small class="memory_disabled_hint" data-i18n="ext_sum_0_disable">0 = disable</small>
-                            </span>
-                            <div id="memory_prompt_words_auto" data-i18n="[title]ext_sum_auto_adjust_desc" title="Try to automatically adjust the interval based on the chat metrics." class="right_menu_button">
-                                <div class="fa-solid fa-wand-magic-sparkles"></div>
-                            </div>
-                        </label>
-                        <input id="memory_prompt_words_force" type="range" value="{{defaultSettings.promptForceWords}}" min="{{defaultSettings.promptMinForceWords}}" max="{{defaultSettings.promptMaxForceWords}}" step="{{defaultSettings.promptForceWordsStep}}" />
-                        <small data-i18n="ext_sum_both_sliders">If both sliders are non-zero, then both will trigger summary updates at their respective intervals.</small>
-                        <hr>
-                    </div>
-                    <div class="memory_template">
-                        <label for="memory_template" data-i18n="ext_sum_injection_template">Injection Template</label>
-                        <textarea id="memory_template" class="text_pole textarea_compact" rows="2" data-i18n="[placeholder]ext_sum_memory_template_placeholder" placeholder="&lcub;&lcub;summary&rcub;&rcub; will resolve to the current summary contents."></textarea>
-                    </div>
-                    <label for="memory_position" data-i18n="ext_sum_injection_position">Injection Position</label>
-                    <label class="checkbox_label" for="memory_include_wi_scan" data-i18n="[title]ext_sum_include_wi_scan_desc" title="Include the latest summary in the WI scan.">
-                        <input id="memory_include_wi_scan" type="checkbox" />
-                        <span data-i18n="ext_sum_include_wi_scan">Include in World Info Scanning</span>
-                    </label>
-                    <div class="radio_group">
-                        <label>
-                            <input type="radio" name="memory_position" value="-1" />
-                            <span data-i18n="None (not injected)">None (not injected)</span>
-                            <i class="fa-solid fa-info-circle" title="The summary will not be injected into the prompt. You can still access it via the &lcub;&lcub;summary&rcub;&rcub; macro." data-i18n="[title]ext_sum_injection_position_none"></i>
-                        </label>
-                        <label>
-                            <input type="radio" name="memory_position" value="2" />
-                            <span data-i18n="Before Main Prompt / Story String">Before Main Prompt / Story String</span>
-                        </label>
-                        <label>
-                            <input type="radio" name="memory_position" value="0" />
-                            <span data-i18n="After Main Prompt / Story String">After Main Prompt / Story String</span>
-                        </label>
-                        <label class="flex-container alignItemsCenter" title="How many messages before the current end of the chat." data-i18n="[title]How many messages before the current end of the chat.">
-                            <input type="radio" name="memory_position" value="1" />
-                            <span data-i18n="In-chat @ Depth">In-chat @ Depth</span> <input id="memory_depth" class="text_pole widthUnset" type="number" min="0" max="9999" />
-                            <span data-i18n="as">as</span>
-                            <select id="memory_role" class="text_pole widthNatural">
-                                <option value="0" data-i18n="System">System</option>
-                                <option value="1" data-i18n="User">User</option>
-                                <option value="2" data-i18n="Assistant">Assistant</option>
-                            </select>
-                        </label>
-                    </div>
-                </div>
-            </div>
+<div id="memory_manager_popup" aria-hidden="true">
+    <div class="memory_manager_header">
+        <span class="memory_manager_title"><i class="fa-solid fa-book-open"></i> 总结 / Memory</span>
+        <div class="memory_manager_header_actions">
+            <button id="memory_manager_summarize" type="button" class="menu_button menu_button_icon"><i class="fa-solid fa-bolt"></i> 立即总结</button>
+            <button id="memory_manager_close" type="button" class="memory_manager_close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
         </div>
     </div>
-</dialog>
+    <div class="memory_manager_body">
+        <aside class="memory_manager_sidebar">
+            <button type="button" class="memory_nav_item active" data-section="summary"><i class="fa-solid fa-book"></i><span>当前纪要</span></button>
+            <button type="button" class="memory_nav_item" data-section="generation"><i class="fa-solid fa-sliders"></i><span>生成设置</span></button>
+            <button type="button" class="memory_nav_item" data-section="prompt"><i class="fa-solid fa-pen-to-square"></i><span>总结提示词</span></button>
+            <button type="button" class="memory_nav_item" data-section="frequency"><i class="fa-solid fa-clock-rotate-left"></i><span>更新频率</span></button>
+            <button type="button" class="memory_nav_item" data-section="injection"><i class="fa-solid fa-code-branch"></i><span>提示词注入</span></button>
+            <button type="button" class="memory_nav_item memory_nav_custom" data-section="custom-api"><i class="fa-solid fa-plug"></i><span>自定义 API</span></button>
+        </aside>
+        <main class="memory_manager_scroll">
+            <section id="memory_section_summary" class="memory_manager_section" data-section="summary">
+                <div class="memory_section_heading"><span><i class="fa-solid fa-book"></i> 当前剧情简介</span><button id="memory_restore" type="button" class="menu_button menu_button_icon" title="恢复上一条总结；重复操作可清除本聊天的总结标记。"><i class="fa-solid fa-clock-rotate-left"></i> 恢复上一版</button></div>
+                <p class="memory_section_help">该内容会作为 Memory 注入聊天，并按时间线模式累计保存。可直接编辑，编辑会保存到当前聊天。</p>
+                <textarea id="memory_contents" class="text_pole memory_summary_editor" rows="18" placeholder="总结会显示在这里……"></textarea>
+            </section>
+
+            <section id="memory_section_generation" class="memory_manager_section" data-section="generation">
+                <div class="memory_section_heading"><span><i class="fa-solid fa-sliders"></i> 生成设置</span></div>
+                <div class="memory_setting_grid">
+                    <label for="summary_source">总结来源
+                        <select id="summary_source" class="text_pole"><option value="main">主 API（当前聊天连接）</option><option value="custom">自定义 API（OpenAI 兼容）</option></select>
+                    </label>
+                    <label class="memory_toggle_setting" for="memory_frozen_panel"><input id="memory_frozen_panel" type="checkbox" /><span><b>暂停自动更新</b><small>暂停不影响“立即总结”。</small></span></label>
+                    <label class="memory_toggle_setting" for="memory_timeline_mode"><input id="memory_timeline_mode" type="checkbox" /><span><b>时间线纪要模式</b><small>每次更新追加一条带时间、地点与重要对话的 AM 记录。</small></span></label>
+                    <label class="memory_toggle_setting" for="memory_include_wi_scan"><input id="memory_include_wi_scan" type="checkbox" /><span><b>参与世界书扫描</b><small>让最新 Summary 参与 World Info 的关键词扫描。</small></span></label>
+                </div>
+                <div data-summary-source="main" class="memory_subsection">
+                    <h4>主 API 的提示词构造方式</h4>
+                    <label class="checkbox_label" for="memory_prompt_builder_raw_blocking" title="扩展自行构造未总结消息的上下文，并等待总结完成。"><input id="memory_prompt_builder_raw_blocking" type="radio" name="memory_prompt_builder" value="1" /><span>原始上下文（阻塞生成）</span></label>
+                    <label class="checkbox_label" for="memory_prompt_builder_raw_non_blocking" title="扩展自行构造未总结消息的上下文，但不阻塞聊天生成。部分后端不支持。"><input id="memory_prompt_builder_raw_non_blocking" type="radio" name="memory_prompt_builder" value="2" /><span>原始上下文（不阻塞）</span></label>
+                    <label class="checkbox_label" for="memory_prompt_builder_default" title="使用常规主提示词构造器，并将总结请求作为最后一条系统消息加入。"><input id="memory_prompt_builder_default" type="radio" name="memory_prompt_builder" value="0" /><span>经典方式（阻塞生成）</span></label>
+                </div>
+            </section>
+
+            <section id="memory_section_prompt" class="memory_manager_section" data-section="prompt">
+                <div class="memory_section_heading"><span><i class="fa-solid fa-pen-to-square"></i> 总结提示词</span><button id="memory_prompt_restore" type="button" class="menu_button menu_button_icon" title="恢复默认提示词"><i class="fa-solid fa-clock-rotate-left"></i> 恢复默认</button></div>
+                <textarea id="memory_prompt" class="text_pole memory_prompt_editor" rows="10" placeholder="用于要求模型生成总结的提示词。{{words}} 会替换为目标字数。"></textarea>
+                <div class="memory_range_group"><label for="memory_prompt_words">目标总结长度 <input id="memory_prompt_words_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinWords}}" max="{{defaultSettings.promptMaxWords}}" step="{{defaultSettings.promptWordsStep}}" /> <span>字</span></label><input id="memory_prompt_words" type="range" value="{{defaultSettings.promptWords}}" min="{{defaultSettings.promptMinWords}}" max="{{defaultSettings.promptMaxWords}}" step="{{defaultSettings.promptWordsStep}}" /><small>时间线模式下，此项只控制“纪要”正文的目标中文字符数；时间、地点、重要对话与概览不计入。</small></div>
+                <div class="memory_range_group"><label for="memory_override_response_length">API 最大输出 <input id="memory_override_response_length_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.overrideResponseLengthMin}}" max="{{defaultSettings.overrideResponseLengthMax}}" step="{{defaultSettings.overrideResponseLengthStep}}" /> tokens <small>0 = 使用默认值</small></label><input id="memory_override_response_length" type="range" value="{{defaultSettings.overrideResponseLength}}" min="{{defaultSettings.overrideResponseLengthMin}}" max="{{defaultSettings.overrideResponseLengthMax}}" step="{{defaultSettings.overrideResponseLengthStep}}" /></div>
+            </section>
+
+            <section id="memory_section_frequency" class="memory_manager_section" data-section="frequency">
+                <div class="memory_section_heading"><span><i class="fa-solid fa-clock-rotate-left"></i> 更新频率与上下文</span></div>
+                <div class="memory_range_group"><label for="memory_manual_summarize_range">手动总结回溯消息数 <input id="memory_manual_summarize_range_value" class="text_pole widthUnset" type="number" min="0" max="10000" /> <small>0 = 自上次总结起</small></label><input id="memory_manual_summarize_range" type="range" value="{{defaultSettings.manualSummarizeRange}}" min="{{defaultSettings.manualSummarizeRangeMin}}" max="{{defaultSettings.manualSummarizeRangeMax}}" step="{{defaultSettings.manualSummarizeRangeStep}}" /></div>
+                <div class="memory_range_group"><label for="memory_auto_summarize_range">自动总结回溯消息数 <input id="memory_auto_summarize_range_value" class="text_pole widthUnset" type="number" min="0" max="10000" /> <small>0 = 自上次总结起</small></label><input id="memory_auto_summarize_range" type="range" value="{{defaultSettings.autoSummarizeRange}}" min="{{defaultSettings.autoSummarizeRangeMin}}" max="{{defaultSettings.autoSummarizeRangeMax}}" step="{{defaultSettings.autoSummarizeRangeStep}}" /></div>
+                <div class="memory_range_group"><label for="memory_max_messages_per_request">每批最大消息数 <input id="memory_max_messages_per_request_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" /> <small>0 = 不限</small></label><input id="memory_max_messages_per_request" type="range" value="{{defaultSettings.maxMessagesPerRequest}}" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" /></div>
+                <div class="memory_range_group"><label for="memory_prompt_interval">每 <input id="memory_prompt_interval_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinInterval}}" max="{{defaultSettings.promptMaxInterval}}" step="{{defaultSettings.promptIntervalStep}}" /> 轮（助手回复）自动更新 <small>0 = 关闭</small><button id="memory_prompt_interval_auto" type="button" class="memory_auto_button" title="根据聊天指标自动计算"><i class="fa-solid fa-wand-magic-sparkles"></i></button></label><input id="memory_prompt_interval" type="range" value="{{defaultSettings.promptInterval}}" min="{{defaultSettings.promptMinInterval}}" max="{{defaultSettings.promptMaxInterval}}" step="{{defaultSettings.promptIntervalStep}}" /></div>
+                <div class="memory_range_group"><label for="memory_prompt_words_force">每 <input id="memory_prompt_words_force_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinForceWords}}" max="{{defaultSettings.promptMaxForceWords}}" step="{{defaultSettings.promptForceWordsStep}}" /> 词自动更新 <small>0 = 关闭</small><button id="memory_prompt_words_auto" type="button" class="memory_auto_button" title="根据聊天指标自动计算"><i class="fa-solid fa-wand-magic-sparkles"></i></button></label><input id="memory_prompt_words_force" type="range" value="{{defaultSettings.promptForceWords}}" min="{{defaultSettings.promptMinForceWords}}" max="{{defaultSettings.promptMaxForceWords}}" step="{{defaultSettings.promptForceWordsStep}}" /></div>
+                <p class="memory_section_help">两项自动阈值均非 0 时，任一阈值满足都会触发更新。</p>
+            </section>
+
+            <section id="memory_section_injection" class="memory_manager_section" data-section="injection">
+                <div class="memory_section_heading"><span><i class="fa-solid fa-code-branch"></i> 提示词注入</span></div>
+                <label for="memory_template">注入模板</label><textarea id="memory_template" class="text_pole textarea_compact" rows="3" placeholder="&lcub;&lcub;summary&rcub;&rcub; 会替换为当前 Summary 内容。"></textarea>
+                <p class="memory_section_help">为了保留 DeepSeek / Claude 的前缀缓存命中率，建议使用“聊天内 @ 深度 0”并设为 Assistant。</p>
+                <div class="radio_group memory_injection_options">
+                    <label><input type="radio" name="memory_position" value="-1" /><span>不注入（仍可通过 &lcub;&lcub;summary&rcub;&rcub; 宏读取）</span></label>
+                    <label><input type="radio" name="memory_position" value="2" /><span>主提示词 / Story String 之前</span></label>
+                    <label><input type="radio" name="memory_position" value="0" /><span>主提示词 / Story String 之后</span></label>
+                    <label class="flex-container alignItemsCenter" title="距离当前聊天末尾的消息数。"><input type="radio" name="memory_position" value="1" /><span>聊天内 @ 深度</span><input id="memory_depth" class="text_pole widthUnset" type="number" min="0" max="9999" /><span>角色</span><select id="memory_role" class="text_pole widthNatural"><option value="0">System（系统）</option><option value="1">User（用户）</option><option value="2">Assistant（助手）</option></select></label>
+                </div>
+            </section>
+
+            <section id="memory_section_custom-api" class="memory_manager_section" data-section="custom-api" data-summary-source="custom">
+                <div class="memory_section_heading"><span><i class="fa-solid fa-plug"></i> 自定义 API</span></div>
+                <p class="memory_section_help">仅在“总结来源”选择自定义 API 时使用；需要兼容 OpenAI Chat Completions 接口。</p>
+                <div class="memory_custom_api_grid">
+                    <label for="memory_custom_api_url">API 地址<input id="memory_custom_api_url" type="text" class="text_pole" placeholder="http://127.0.0.1:5000/v1" /></label>
+                    <label for="memory_custom_api_key">API 密钥<span class="memory_api_key_row"><input id="memory_custom_api_key" type="password" class="text_pole" placeholder="sk-..." /><button id="memory_custom_api_key_toggle" type="button" class="memory_icon_button" title="显示/隐藏密钥"><i class="fa-solid fa-eye"></i></button></span></label>
+                    <label for="memory_custom_api_model">模型 ID<input id="memory_custom_api_model" type="text" class="text_pole" placeholder="例如：deepseek-chat" /></label>
+                    <div><span class="memory_input_label">从 API 获取模型</span><div class="memory_fetch_row"><button id="memory_custom_api_fetch_models" type="button" class="menu_button menu_button_icon"><i class="fa-solid fa-sync"></i> 获取模型</button><select id="memory_custom_api_model_select" class="text_pole"><option value="">（选择模型）</option></select></div></div>
+                </div>
+                <div class="memory_range_group"><label for="memory_custom_api_temp">温度 <input id="memory_custom_api_temp_value" class="text_pole widthUnset" type="number" min="0" max="2" step="0.01" /></label><input id="memory_custom_api_temp" type="range" min="0" max="2" step="0.01" value="0.5" /></div>
+                <div class="memory_range_group"><label for="memory_custom_api_max_tokens">最大输出 tokens <input id="memory_custom_api_max_tokens_value" class="text_pole widthUnset" type="number" min="0" max="50000" step="1" /> <small>0 = 不限制</small></label><input id="memory_custom_api_max_tokens" type="range" min="0" max="50000" step="1" value="50000" /></div>
+            </section>
+        </main>
+    </div>
+</div>
