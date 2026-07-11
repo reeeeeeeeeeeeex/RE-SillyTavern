@@ -66,15 +66,6 @@ const defaultSettings = {
         quests_events: false,
         options: false,
     },
-    tableLimits: {
-        global_state: 200,
-        protagonist_info: 400,
-        important_characters: 400,
-        protagonist_skills: 400,
-        inventory: 300,
-        quests_events: 400,
-        options: 300,
-    },
 };
 
 let lastSnapshot = null;
@@ -91,7 +82,6 @@ function loadSettings() {
         if (settings[key] === undefined) settings[key] = defaultSettings[key];
     }
     settings.tables = { ...defaultSettings.tables, ...settings.tables };
-    settings.tableLimits = { ...defaultSettings.tableLimits, ...settings.tableLimits };
 
     $('#protagonist_state_enabled').prop('checked', settings.enabled).trigger('input');
     $('#protagonist_state_position').val(settings.position).trigger('change');
@@ -105,7 +95,6 @@ function loadSettings() {
 
     for (const tableKey of Object.keys(SHEET_MAP).map(k => SHEET_MAP[k].key)) {
         $(`#protagonist_state_table_${tableKey}`).prop('checked', settings.tables[tableKey]).trigger('input');
-        $(`#protagonist_state_limit_${tableKey}`).val(settings.tableLimits[tableKey]).trigger('input');
     }
 }
 
@@ -447,8 +436,9 @@ function buildCurrentStateText() {
         if (!rows.length) continue;
         const formatted = formatTable(tableKey, rows);
         if (!formatted.trim()) continue;
-        const limit = settings.tableLimits[tableKey] || 500;
-        sections.push(`[${info.name}]\n${truncateText(formatted, limit)}`);
+        // State injection is deliberately lossless: selected tables are sent in
+        // full so the model never receives a fabricated trailing ellipsis.
+        sections.push(`[${info.name}]\n${formatted}`);
     }
     if (!sections.length) { lastFormattedText = ''; return ''; }
     const fullText = `[Current Protagonist State]\n\n${sections.join('\n\n')}`;
@@ -480,14 +470,29 @@ function formatTable(tableKey, rows) {
         case 'important_characters':
             return rows.map(r => {
                 const absent = r.is_absent === '是' ? ' [Absent]' : '';
-                return `- ${r.name || 'Unnamed'}${absent}${r.brief_intro ? ` - ${r.brief_intro}` : ''}${r.appearance ? ` | ${r.appearance}` : ''}${r.key_items ? ` | Items: ${r.key_items}` : ''}`;
+                const details = [];
+                if (r.gender_age) details.push(`Gender/Age: ${r.gender_age}`);
+                if (r.brief_intro) details.push(`Intro: ${r.brief_intro}`);
+                if (r.appearance) details.push(`Appearance: ${r.appearance}`);
+                if (r.key_items) details.push(`Items: ${r.key_items}`);
+                if (r.past_experience) details.push(`Past: ${r.past_experience}`);
+                return `- ${r.name || 'Unnamed'}${absent}${details.length ? ` | ${details.join(' | ')}` : ''}`;
             }).join('\n');
         case 'protagonist_skills':
             return rows.map(r => `- ${r.skill_name || 'Unnamed'}${r.skill_type ? ` [${r.skill_type}]` : ''}${r.skill_level ? ` (${r.skill_level})` : ''}: ${r.effect_desc || ''}`).join('\n');
         case 'inventory':
             return rows.map(r => `- ${r.item_name || 'Unnamed'} ${r.quantity != null ? `x${r.quantity}` : ''}${r.category ? ` [${r.category}]` : ''}: ${r.description || ''}`).join('\n');
         case 'quests_events':
-            return rows.map(r => `- ${r.quest_name || 'Unnamed'}${r.quest_type ? ` [${r.quest_type}]` : ''}${r.current_progress ? ` - ${r.current_progress}` : ''}${r.reward ? ` | Reward: ${r.reward}` : ''}`).join('\n');
+            return rows.map(r => {
+                const details = [];
+                if (r.issuer) details.push(`Issuer: ${r.issuer}`);
+                if (r.detail_desc) details.push(`Details: ${r.detail_desc}`);
+                if (r.current_progress) details.push(`Progress: ${r.current_progress}`);
+                if (r.time_limit) details.push(`Deadline: ${r.time_limit}`);
+                if (r.reward) details.push(`Reward: ${r.reward}`);
+                if (r.penalty) details.push(`Penalty: ${r.penalty}`);
+                return `- ${r.quest_name || 'Unnamed'}${r.quest_type ? ` [${r.quest_type}]` : ''}${details.length ? ` | ${details.join(' | ')}` : ''}`;
+            }).join('\n');
         case 'options': {
             const p = [];
             for (let i = 1; i <= 4; i++) if (r0[`option_${i}`]) p.push(`${i}. ${r0[`option_${i}`]}`);
@@ -1130,7 +1135,6 @@ function onIncludeMemorySummaryInput() {
 }
 function onShowBottomBarInput() { extension_settings.protagonistState.showBottomBar = $(this).prop('checked'); saveSettings(); renderBottomBar(); }
 function onTableToggle() { const tk = $(this).data('table'); extension_settings.protagonistState.tables[tk] = $(this).prop('checked'); saveSettings(); updatePromptInjection(); renderBottomBar(); }
-function onTableLimitInput() { const tk = $(this).data('table'); extension_settings.protagonistState.tableLimits[tk] = Number($(this).val()); saveSettings(); updatePromptInjection(); renderBottomBar(); }
 function onOpenPopupClick() { openStatePopup(); }
 async function onUpdateNowClick() { await updateStateForMessage(null, { force: true }); }
 
@@ -1148,7 +1152,6 @@ function setupListeners() {
     $('#protagonist_state_update_now').off('click').on('click', onUpdateNowClick);
     for (const tableKey of Object.keys(SHEET_MAP).map(k => SHEET_MAP[k].key)) {
         $(`#protagonist_state_table_${tableKey}`).off('input').on('input', onTableToggle);
-        $(`#protagonist_state_limit_${tableKey}`).off('input').on('input', onTableLimitInput);
     }
     $(document).off('input.ps_memory_summary', '#memory_contents').on('input.ps_memory_summary', '#memory_contents', () => renderBottomBar());
     bindPopupEvents();

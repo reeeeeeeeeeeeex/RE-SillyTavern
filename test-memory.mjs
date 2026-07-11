@@ -31,7 +31,7 @@ const mocks = {
     console,
 };
 
-const wrapped = `async () => { ${code}\nreturn { getTimelineChronicleLengthRange, normalizeTimelineSummary, buildTimelineSummaryContract, buildSummarySystemPrompt, getSummaryProgress, formatFinalSummary, getRawSummaryPrompt, defaultSettings }; }`;
+const wrapped = `async () => { ${code}\nreturn { getTimelineChronicleLengthRange, normalizeTimelineSummary, buildTimelineSummaryContract, buildSummarySystemPrompt, getSummaryProgress, getSummaryPromptForNow, formatFinalSummary, getRawSummaryPrompt, defaultSettings }; }`;
 const mod = await new Function(...Object.keys(mocks), `return (${wrapped})();`)(...Object.values(mocks));
 
 let passed = 0;
@@ -100,6 +100,20 @@ test('counts automatic update frequency by assistant replies after the latest su
         { is_system: true, mes: '系统消息不计入' },
     ]);
     assert.strictEqual(progress.assistantTurnsSinceLastSummary, 2);
+});
+
+await testAsync('triggers automatic summarization after the configured assistant-reply interval', async () => {
+    mocks.extension_settings.memory.promptInterval = 5;
+    mocks.extension_settings.memory.promptForceWords = 0;
+    mocks.extension_settings.memory.prompt = 'AUTO PROMPT';
+    const afterSummary = [{ is_user: false, mes: 'summary anchor', extra: { memory: '[Stage 1]: old' } }];
+    const fourTurns = afterSummary.concat(Array.from({ length: 4 }, (_, index) => ([
+        { is_user: true, mes: `user ${index}` },
+        { is_user: false, mes: `assistant ${index}` },
+    ])).flat());
+    const fiveTurns = fourTurns.concat([{ is_user: true, mes: 'user 5' }, { is_user: false, mes: 'assistant 5' }]);
+    assert.strictEqual(await mod.getSummaryPromptForNow({ chat: fourTurns }, false), '');
+    assert.strictEqual(await mod.getSummaryPromptForNow({ chat: fiveTurns }, false), 'AUTO PROMPT');
 });
 
 await testAsync('keeps the cumulative window start while expanding its end and includes prior Memory', async () => {

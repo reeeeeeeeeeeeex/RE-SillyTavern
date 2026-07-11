@@ -55,7 +55,7 @@
                         <select id="summary_source" class="text_pole"><option value="main">主 API（当前聊天连接）</option><option value="custom">自定义 API（OpenAI 兼容）</option></select>
                     </label>
                     <label class="memory_toggle_setting" for="memory_frozen_panel"><input id="memory_frozen_panel" type="checkbox" /><span><b>暂停自动更新</b><small>暂停不影响“立即总结”。</small></span></label>
-                    <label class="memory_toggle_setting" for="memory_timeline_mode"><input id="memory_timeline_mode" type="checkbox" /><span><b>时间线纪要模式</b><small>每次更新追加一条带时间、地点与重要对话的 AM 记录。</small></span></label>
+                    <label class="memory_toggle_setting" for="memory_timeline_mode"><input id="memory_timeline_mode" type="checkbox" /><span><b>时间线纪要模式</b><small>每次更新追加一条带时间、地点与重要对话的 Stage 记录。</small></span></label>
                     <label class="memory_toggle_setting" for="memory_include_wi_scan"><input id="memory_include_wi_scan" type="checkbox" /><span><b>参与世界书扫描</b><small>让最新 Summary 参与 World Info 的关键词扫描。</small></span></label>
                 </div>
                 <div data-summary-source="main" class="memory_subsection">
@@ -80,11 +80,18 @@
                 <div class="memory_range_group"><label for="memory_max_messages_per_request">每批最大消息数 <input id="memory_max_messages_per_request_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" /> <small>0 = 不限</small></label><input id="memory_max_messages_per_request" type="range" value="{{defaultSettings.maxMessagesPerRequest}}" min="{{defaultSettings.maxMessagesPerRequestMin}}" max="{{defaultSettings.maxMessagesPerRequestMax}}" step="{{defaultSettings.maxMessagesPerRequestStep}}" /></div>
                 <div class="memory_range_group"><label for="memory_prompt_interval">每 <input id="memory_prompt_interval_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinInterval}}" max="{{defaultSettings.promptMaxInterval}}" step="{{defaultSettings.promptIntervalStep}}" /> 轮（助手回复）自动更新 <small>0 = 关闭</small><button id="memory_prompt_interval_auto" type="button" class="memory_auto_button" title="根据聊天指标自动计算"><i class="fa-solid fa-wand-magic-sparkles"></i></button></label><input id="memory_prompt_interval" type="range" value="{{defaultSettings.promptInterval}}" min="{{defaultSettings.promptMinInterval}}" max="{{defaultSettings.promptMaxInterval}}" step="{{defaultSettings.promptIntervalStep}}" /></div>
                 <div class="memory_range_group"><label for="memory_prompt_words_force">每 <input id="memory_prompt_words_force_value" class="text_pole widthUnset" type="number" min="{{defaultSettings.promptMinForceWords}}" max="{{defaultSettings.promptMaxForceWords}}" step="{{defaultSettings.promptForceWordsStep}}" /> 词自动更新 <small>0 = 关闭</small><button id="memory_prompt_words_auto" type="button" class="memory_auto_button" title="根据聊天指标自动计算"><i class="fa-solid fa-wand-magic-sparkles"></i></button></label><input id="memory_prompt_words_force" type="range" value="{{defaultSettings.promptForceWords}}" min="{{defaultSettings.promptMinForceWords}}" max="{{defaultSettings.promptMaxForceWords}}" step="{{defaultSettings.promptForceWordsStep}}" /></div>
-                <p class="memory_section_help">两项自动阈值均非 0 时，任一阈值满足都会触发更新。</p>
+                <div id="memory_auto_summary_card" class="memory_auto_summary_card" data-state="waiting">
+                    <div class="memory_auto_summary_header">
+                        <span><i class="fa-solid fa-arrows-rotate"></i> 自动总结进度</span>
+                        <span id="memory_auto_summary_badge" class="memory_auto_summary_badge">等待中</span>
+                    </div>
+                    <div id="memory_auto_summary_status" class="memory_auto_summary_status" aria-live="polite"></div>
+                    <p class="memory_auto_summary_help">从最近一次成功 Summary 的标记后开始计数；两项阈值只要任一满足即更新。</p>
+                </div>
             </section>
 
             <section id="memory_section_injection" class="memory_manager_section" data-section="injection">
-                <div class="memory_section_heading"><span><i class="fa-solid fa-code-branch"></i> 提示词注入</span></div>
+                <div class="memory_section_heading"><span><i class="fa-solid fa-code-branch"></i> 提示词注入</span><button id="memory_template_restore" type="button" class="menu_button menu_button_icon" title="恢复默认注入模板"><i class="fa-solid fa-clock-rotate-left"></i> 恢复默认</button></div>
                 <label for="memory_template">注入模板</label><textarea id="memory_template" class="text_pole textarea_compact" rows="3" placeholder="&lcub;&lcub;summary&rcub;&rcub; 会替换为当前 Summary 内容。"></textarea>
                 <p class="memory_section_help">为了保留 DeepSeek / Claude 的前缀缓存命中率，建议使用“聊天内 @ 深度 0”并设为 Assistant。</p>
                 <div class="radio_group memory_injection_options">

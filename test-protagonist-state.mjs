@@ -372,6 +372,18 @@ test('formats important_characters with absent flag', () => {
     const formatted = mod.formatTable('important_characters', rows);
     assert.ok(formatted.includes('艾莉丝'));
     assert.ok(formatted.includes('[Absent]'), 'absent character marked');
+    assert.ok(formatted.includes('Gender/Age: 女/22'));
+    assert.ok(formatted.includes('Past: 战死'));
+});
+
+test('formats every quest field for lossless selected-table injection', () => {
+    const formatted = mod.formatTable('quests_events', [{
+        quest_name: '护送任务', quest_type: '主线', issuer: '院长', detail_desc: '护送商队抵达港口',
+        current_progress: '已出发', time_limit: '三天', reward: '金币', penalty: '声望下降',
+    }]);
+    for (const value of ['院长', '护送商队抵达港口', '已出发', '三天', '金币', '声望下降']) {
+        assert.ok(formatted.includes(value), `missing quest field: ${value}`);
+    }
 });
 
 console.log('=== tableEdit updater ===');

@@ -114,7 +114,7 @@ Output only this record. Do not output <thought>, <content>, <tableEdit>, Markdo
 - <speaker>：<0-3 only; retain only commitments, secrets, conflicts, relationship changes, or task-critical dialogue. Quote only text actually present; otherwise faithfully paraphrase without quotation marks.>
 概览：<at most 40 Chinese characters>
 
-Do not add an AM code, a separate heading, or a Stage label. The host app adds the single [Stage N] wrapper. Never invent facts, dialogue, time, or location. Skip explicit sexual detail and describe relationship developments factually.`;
+Do not add a separate heading or a Stage label. The host app adds the single [Stage N] wrapper. Never invent facts, dialogue, time, or location. Skip explicit sexual detail and describe relationship developments factually.`;
 
 function getTimelineChronicleLengthRange() {
     const target = Math.max(1, Number(extension_settings.memory.promptWords) || defaultSettings.promptWords);
@@ -303,6 +303,7 @@ function loadSettings() {
     $('#memory_timeline_mode').prop('checked', extension_settings.memory.timelineMode).trigger('input');
     $('#memory_include_wi_scan').prop('checked', extension_settings.memory.scan).trigger('input');
     switchSourceControls(extension_settings.memory.source);
+    renderAutoSummaryStatus();
 }
 
 async function onPromptForceWordsAutoClick() {
@@ -401,6 +402,7 @@ function onMemoryFrozenInput() {
     extension_settings.memory.memoryFrozen = value;
     $('#memory_frozen, #memory_frozen_panel').prop('checked', value);
     saveSettingsDebounced();
+    renderAutoSummaryStatus();
 }
 
 function onMemoryPromptWordsInput() {
@@ -417,10 +419,15 @@ function onMemoryPromptIntervalInput() {
     $('#memory_prompt_interval').val(extension_settings.memory.promptInterval);
     $('#memory_prompt_interval_value').val(extension_settings.memory.promptInterval);
     saveSettingsDebounced();
+    renderAutoSummaryStatus();
 }
 
 function onMemoryPromptRestoreClick() {
     $('#memory_prompt').val(defaultPrompt).trigger('input');
+}
+
+function onMemoryTemplateRestoreClick() {
+    $('#memory_template').val(defaultTemplate).trigger('input');
 }
 
 function onMemoryPromptInput() {
@@ -471,6 +478,7 @@ function onMemoryPromptWordsForceInput() {
     $('#memory_prompt_words_force').val(extension_settings.memory.promptForceWords);
     $('#memory_prompt_words_force_value').val(extension_settings.memory.promptForceWords);
     saveSettingsDebounced();
+    renderAutoSummaryStatus();
 }
 
 function onOverrideResponseLengthInput() {
@@ -576,6 +584,7 @@ function onChatChanged() {
     autoSummaryPending = false;
     const latestMemory = getLatestMemoryFromChat(context.chat);
     setMemoryContext(latestMemory, false);
+    renderAutoSummaryStatus();
 }
 
 function getSummaryProgress(chat) {
@@ -604,14 +613,54 @@ function getSummaryProgress(chat) {
     return { assistantTurnsSinceLastSummary, wordsSinceLastSummary };
 }
 
+function renderAutoSummaryStatus() {
+    const $status = $('#memory_auto_summary_status');
+    if (!$status.length) return;
+
+    const $card = $('#memory_auto_summary_card');
+    const $badge = $('#memory_auto_summary_badge');
+    const setStatus = (state, badge, text) => {
+        $card.attr('data-state', state);
+        $badge.text(badge);
+        $status.text(text);
+    };
+
+    const settings = extension_settings.memory || {};
+    if (settings.memoryFrozen) {
+        setStatus('paused', '已暂停', '自动总结已暂停；手动总结仍可使用。');
+        return;
+    }
+    if (autoSummaryPending || inApiCall) {
+        setStatus('running', '更新中', '正在检查或请求自动总结……');
+        return;
+    }
+
+    const turnInterval = Math.max(0, Number(settings.promptInterval) || 0);
+    const wordInterval = Math.max(0, Number(settings.promptForceWords) || 0);
+    if (turnInterval === 0 && wordInterval === 0) {
+        setStatus('disabled', '已关闭', '尚未设置自动总结阈值。');
+        return;
+    }
+
+    const { assistantTurnsSinceLastSummary, wordsSinceLastSummary } = getSummaryProgress(getContext().chat || []);
+    const parts = [];
+    if (turnInterval > 0) parts.push(`助手回复 ${assistantTurnsSinceLastSummary} / ${turnInterval} 轮`);
+    if (wordInterval > 0) parts.push(`消息文本 ${wordsSinceLastSummary} / ${wordInterval} 词`);
+    const ready = (turnInterval > 0 && assistantTurnsSinceLastSummary >= turnInterval)
+        || (wordInterval > 0 && wordsSinceLastSummary >= wordInterval);
+    setStatus(ready ? 'ready' : 'waiting', ready ? '准备更新' : '累计中', parts.join(' · '));
+}
+
 async function onChatEvent() {
     // Streaming in-progress
     if (streamingProcessor && !streamingProcessor.isFinished) {
+        renderAutoSummaryStatus();
         return;
     }
 
     // Currently summarizing or frozen state - skip
     if (autoSummaryPending || inApiCall || extension_settings.memory.memoryFrozen) {
+        renderAutoSummaryStatus();
         return;
     }
 
@@ -619,6 +668,7 @@ async function onChatEvent() {
     const chat = context.chat;
     // Chat can't be empty.
     if (chat.length === 0) return;
+    renderAutoSummaryStatus();
 
     const lastMessage = chat[chat.length - 1];
 
@@ -644,11 +694,15 @@ async function onChatEvent() {
 
     autoSummaryPending = true;
     summarizeChat(context)
-        .catch(console.error)
+        .catch(error => {
+            console.error(error);
+            toastr.error(`自动总结失败：${error.message || error}`);
+        })
         .finally(() => {
             lastMessageId = context.chat?.length ?? null;
             lastMessageHash = getStringHash((context.chat.length && context.chat[context.chat.length - 1].mes) ?? '');
             autoSummaryPending = false;
+            renderAutoSummaryStatus();
         });
 }
 
@@ -1333,6 +1387,7 @@ function setupListeners() {
     $('#memory_prompt_builder_raw_blocking').off('input').on('input', onMemoryPromptBuilderInput);
     $('#memory_prompt_builder_raw_non_blocking').off('input').on('input', onMemoryPromptBuilderInput);
     $('#memory_prompt_restore').off('click').on('click', onMemoryPromptRestoreClick);
+    $('#memory_template_restore').off('click').on('click', onMemoryTemplateRestoreClick);
     $('#memory_prompt_interval_auto').off('click').on('click', onPromptIntervalAutoClick);
     $('#memory_prompt_words_auto').off('click').on('click', onPromptForceWordsAutoClick);
     $('#memory_override_response_length, #memory_override_response_length_value').off('input').on('input', onOverrideResponseLengthInput);

@@ -50,7 +50,7 @@ Jest test files live in `tests/` and cover: `util.test.js`, `prompt-converters.t
 
 ```bash
 node test-protagonist-state.mjs   # Protagonist State: DDL parsing, delta reconstruct, snapshot read
-node test-memory.mjs              # Memory: AM timeline numbering, normalization, cumulative batches
+node test-memory.mjs              # Memory: timeline normalization and cumulative batches
 ```
 
 The harnesses strip ESM imports, mock browser globals, and exercise pure logic functions via `new Function()` eval.
@@ -161,7 +161,7 @@ Location: `public/scripts/extensions/memory/`
   - `manualSummarizeRange`: fixed lookback for manual "Summarize now".
   - `autoSummarizeRange`: fixed lookback for automatic summaries (interval/word-based).
   - `0` for either means "since the latest summary marker".
-- **Automatic frequency:** `promptInterval` counts assistant replies (rounds) since the latest Summary marker, not all chat messages. The extension checks both `CHARACTER_MESSAGE_RENDERED` and `GENERATION_ENDED`; a pending guard prevents duplicate requests. A non-zero word interval can trigger independently even when the round interval is `0`.
+- **Automatic frequency:** `promptInterval` counts assistant replies (rounds) since the latest Summary marker, not all chat messages. The extension checks both `CHARACTER_MESSAGE_RENDERED` and `GENERATION_ENDED`; a pending guard prevents duplicate requests. A non-zero word interval can trigger independently even when the round interval is `0`. `#memory_auto_summary_status` displays the live counter/paused/request state, and automatic request failures show a toast.
 - **Live textbox:** The summary injected into prompts and the summary context sent during summarization both follow the live `#memory_contents` value. If the textbox is empty, no previous summary is sent.
 - **Summary marker:** `mes.extra.memory` stores the summary on a chat message. Empty string (`''`) is treated as a valid marker position so clearing the textbox does not reset summarization state.
 - **Context injection:** The summary system prompt includes World Info / Author's Note, optional protagonist state, and in Timeline Chronicle Mode the current time/location fields from `window.protagonistStateExtension.getTimelineContext()`.
@@ -179,7 +179,7 @@ Location: `public/scripts/extensions/protagonist-state/`
 - UI: a large draggable two-column popup with a sidebar and continuous editable record cards for all active tables + Memory. A collapsible bottom bar (`#protagonist_state_bottom_bar`) shows selected-table summaries.
 - Formats seven active tables (`global_state`, `protagonist_info`, `important_characters`, `protagonist_skills`, `inventory`, `quests_events`, `options`). Legacy `sheet_3NoMc1wI` chronicle data is deliberately hidden and excluded from prompt/API updates, but preserved unchanged whenever another table is checkpoint-saved.
 - The source data stores each sheet's `content` as a 2D array `[headerRow, dataRow, ...]` with **Chinese** headers. The extension parses each sheet's `sourceData.ddl` to recover English column names (`parseDDLColumns`); a hardcoded `TABLE_COLUMNS` fallback covers default tables if the DDL is missing.
-- Injects via `setExtensionPrompt()` at `IN_CHAT @ Depth 0` / `SYSTEM` by default. Prompt injection is truncated by per-table and total length limits; the popup shows full untruncated content.
+- Injects via `setExtensionPrompt()` at `IN_CHAT @ Depth 0` / `SYSTEM` by default. Every selected table is injected in full; no injection-time ellipsis or per-table word cap is applied. The bottom-bar's collapsed preview remains compact only for display.
 - Exposes `window.protagonistStateExtension.{getCurrentStateText, getTimelineContext, getLastSnapshot, getSettings, openPopup, applyTableEdit}`. `getTimelineContext` always reads global time/location independently of display-table choices. The `provideToMemory` setting gates full state injection; Memory exposes `window.memoryExtension.{summarizeNow, getSummaryText, getSettings}` for the popup's Memory tab.
 - Logic tests (no browser needed): `node test-protagonist-state.mjs` from the repo root. The harness strips ESM imports, mocks browser globals, and exercises DDL parsing, 2D-array-to-object conversion, delta apply/reconstruct, isolation-key detection, and snapshot reading.
 
