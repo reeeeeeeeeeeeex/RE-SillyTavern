@@ -161,7 +161,9 @@ Location: `public/scripts/extensions/memory/`
   - `manualSummarizeRange`: fixed lookback for manual "Summarize now".
   - `autoSummarizeRange`: fixed lookback for automatic summaries (interval/word-based).
   - `0` for either means "since the latest summary marker".
+- **Message boundary:** The completed latest user/assistant message is eligible for the request; a successful Summary marker may live on the latest chat message. A non-zero range sends exactly the latest N non-system messages.
 - **Automatic frequency:** `promptInterval` counts assistant replies (rounds) since the latest Summary marker, not all chat messages. The extension checks both `CHARACTER_MESSAGE_RENDERED` and `GENERATION_ENDED`; a pending guard prevents duplicate requests. A non-zero word interval can trigger independently even when the round interval is `0`. `#memory_auto_summary_status` displays the live counter/paused/request state, and automatic request failures show a toast.
+- **Async safety:** Main and Custom summary responses are discarded if the active chat changes before the result is written.
 - **Live textbox:** The summary injected into prompts and the summary context sent during summarization both follow the live `#memory_contents` value. If the textbox is empty, no previous summary is sent.
 - **Summary marker:** `mes.extra.memory` stores the summary on a chat message. Empty string (`''`) is treated as a valid marker position so clearing the textbox does not reset summarization state.
 - **Context injection:** The summary system prompt includes World Info / Author's Note, optional protagonist state, and in Timeline Chronicle Mode the current time/location fields from `window.protagonistStateExtension.getTimelineContext()`.
@@ -176,6 +178,8 @@ Location: `public/scripts/extensions/protagonist-state/`
 - Reads tables from persisted snapshots in chat message tags (`msg.TavernDB_ACU_IsolatedData[isolationKey].independentData`); reconstructs delta-mode snapshots and auto-detects the isolation key.
 - Writes back: `writeSnapshotToChat()` writes a checkpoint snapshot to the latest non-user message's `TavernDB_ACU_IsolatedData` and calls `saveChat()`.
 - Parses `<tableEdit>` blocks from its dedicated update API (structured `updateRow/insertRow/deleteRow` commands, not SQL) and can update manually or at the configured AI-response interval.
+- **Automatic frequency:** `updateInterval` counts assistant replies after the latest successful `protagonist_state_updated` marker. Manual updates reset the same marker; failed or stale requests leave it unchanged so the next reply can retry.
+- **Async safety:** A state response is written only when the original chat and target assistant message still exist unchanged; results from a switched, edited, deleted, or regenerated target are discarded.
 - UI: a large draggable two-column popup with a sidebar and continuous editable record cards for all active tables + Memory. A collapsible bottom bar (`#protagonist_state_bottom_bar`) shows selected-table summaries.
 - Formats seven active tables (`global_state`, `protagonist_info`, `important_characters`, `protagonist_skills`, `inventory`, `quests_events`, `options`). Legacy `sheet_3NoMc1wI` chronicle data is deliberately hidden and excluded from prompt/API updates, but preserved unchanged whenever another table is checkpoint-saved.
 - The source data stores each sheet's `content` as a 2D array `[headerRow, dataRow, ...]` with **Chinese** headers. The extension parses each sheet's `sourceData.ddl` to recover English column names (`parseDDLColumns`); a hardcoded `TABLE_COLUMNS` fallback covers default tables if the DDL is missing.

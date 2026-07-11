@@ -10,7 +10,7 @@ import {
 } from '../../../script.js';
 import { getContext, extension_settings, renderExtensionTemplateAsync } from '../../extensions.js';
 import { debounce_timeout } from '../../constants.js';
-import { debounce } from '../../utils.js';
+import { debounce, getStringHash } from '../../utils.js';
 
 const MODULE_NAME = 'protagonist_state';
 const LEGACY_CHRONICLE_SHEET = 'sheet_3NoMc1wI';
@@ -269,8 +269,24 @@ function readDatabaseSnapshot(chat) {
 }
 
 // ── Write ─────────────────────────────────────────────────────────────
-async function writeSnapshotToChat(snapshot) {
+function isSameChatContext(expectedContext, currentContext = getContext()) {
+    if (!expectedContext || !currentContext) return false;
+    return currentContext.groupId === expectedContext.groupId
+        && currentContext.chatId === expectedContext.chatId
+        && (currentContext.groupId || currentContext.characterId === expectedContext.characterId);
+}
+
+function isTargetStillCurrent(expectedContext, target) {
+    const currentContext = getContext();
+    const currentTarget = currentContext.chat?.[target.index];
+    return isSameChatContext(expectedContext, currentContext)
+        && currentTarget === target.assistantMessage
+        && getStringHash(currentTarget?.mes || '') === target.messageHash;
+}
+
+async function writeSnapshotToChat(snapshot, expectedContext = null) {
     const context = getContext();
+    if (expectedContext && !isSameChatContext(expectedContext, context)) return false;
     const chat = context.chat;
     if (!Array.isArray(chat) || chat.length === 0) return false;
     const isolationKey = detectIsolationKey(chat);
@@ -391,16 +407,17 @@ function applyEditsToSnapshot(snapshot, ops) {
     return snapshot;
 }
 
-async function applyTableEditFromResponse(aiResponse) {
+async function applyTableEditFromResponse(aiResponse, options = {}) {
     const block = extractTableEditBlock(aiResponse);
     if (!block || !block.trim()) return false;
     const ops = parseStructuredEdits(block);
     if (!ops.length) return false;
-    const context = getContext();
-    const snapshot = readDatabaseSnapshot(context.chat);
+    const context = options.context || getContext();
+    if (options.context && !isSameChatContext(options.context)) return false;
+    const snapshot = options.snapshot || readDatabaseSnapshot(context.chat);
     if (!snapshot) return false;
     applyEditsToSnapshot(snapshot, ops);
-    const saved = await writeSnapshotToChat(snapshot);
+    const saved = await writeSnapshotToChat(snapshot, options.context || null);
     if (!saved) return false;
     lastSnapshot = snapshot;
     updatePromptInjection();
@@ -591,7 +608,7 @@ function getStateUpdateTarget(context, messageId = null) {
             break;
         }
     }
-    return { index, assistantMessage, userMessage };
+    return { index, assistantMessage, userMessage, messageHash: getStringHash(assistantMessage.mes) };
 }
 
 function selectUpdateHistoryMessages(chat, throughIndex, maxMessages) {
@@ -702,13 +719,21 @@ async function updateStateForMessage(messageId = null, { force = false, quiet = 
     try {
         const messages = buildStateUpdateRequestMessages(snapshot, context, target);
         const responseText = await requestStateUpdate(messages);
+        if (!isTargetStillCurrent(context, target)) return false;
+        if (!/<tableEdit\b[\s\S]*?<\/tableEdit>/i.test(responseText)) {
+            throw new Error('The state update API returned no valid tableEdit block.');
+        }
+
+        const applied = await applyTableEditFromResponse(responseText, { context, snapshot });
+        if (!isTargetStillCurrent(context, target)) return false;
         target.assistantMessage.extra = target.assistantMessage.extra || {};
         target.assistantMessage.extra.protagonist_state_updated = Date.now();
-
-        const applied = await applyTableEditFromResponse(responseText);
         if (!applied) {
             await context.saveChat();
             if (!quiet) toastr.info('No database changes were returned for this turn.');
+        }
+        else {
+            await context.saveChat();
         }
         return true;
     } catch (error) {
@@ -1098,8 +1123,20 @@ function onGenerationEnded() {
     renderBottomBar();
 }
 
-function getAssistantTurnCount(chat, throughIndex) {
-    return chat.slice(0, throughIndex + 1).filter(message => (
+function hasStateUpdateMarker(message) {
+    return message?.extra?.protagonist_state_updated !== undefined
+        && message?.extra?.protagonist_state_updated !== null;
+}
+
+function getAssistantTurnsSinceStateUpdate(chat, throughIndex = chat.length - 1) {
+    let markerIndex = -1;
+    for (let i = Math.min(throughIndex, chat.length - 1); i >= 0; i--) {
+        if (hasStateUpdateMarker(chat[i])) {
+            markerIndex = i;
+            break;
+        }
+    }
+    return chat.slice(markerIndex + 1, throughIndex + 1).filter(message => (
         message && !message.is_user && !message.is_system && String(message.mes || '').trim()
     )).length;
 }
@@ -1110,7 +1147,10 @@ async function onCharacterMessageRendered(messageId) {
     if (interval === 0) return;
 
     const context = getContext();
-    if (getAssistantTurnCount(context.chat || [], Number(messageId)) % interval !== 0) return;
+    const throughIndex = Number.isInteger(Number(messageId))
+        ? Number(messageId)
+        : (context.chat?.length || 1) - 1;
+    if (getAssistantTurnsSinceStateUpdate(context.chat || [], throughIndex) < interval) return;
     await updateStateForMessage(Number(messageId), { quiet: true });
 }
 

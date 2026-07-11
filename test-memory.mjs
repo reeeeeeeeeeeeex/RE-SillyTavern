@@ -31,7 +31,7 @@ const mocks = {
     console,
 };
 
-const wrapped = `async () => { ${code}\nreturn { getTimelineChronicleLengthRange, normalizeTimelineSummary, buildTimelineSummaryContract, buildSummarySystemPrompt, getSummaryProgress, getSummaryPromptForNow, formatFinalSummary, getRawSummaryPrompt, defaultSettings }; }`;
+const wrapped = `async () => { ${code}\nreturn { getTimelineChronicleLengthRange, normalizeTimelineSummary, buildTimelineSummaryContract, buildSummarySystemPrompt, getSummaryProgress, getSummaryPromptForNow, formatFinalSummary, getRawSummaryPrompt, getLatestMemoryFromChat, getIndexOfLatestChatSummary, defaultSettings }; }`;
 const mod = await new Function(...Object.keys(mocks), `return (${wrapped})();`)(...Object.values(mocks));
 
 let passed = 0;
@@ -87,6 +87,14 @@ test('places the dynamic timeline constraint after a custom base prompt', () => 
 test('keeps Stage as the sole wrapper around each timeline entry', () => {
     assert.strictEqual(mod.formatFinalSummary('纪要：第一段', ''), '[Stage 1]: 纪要：第一段');
     assert.strictEqual(mod.formatFinalSummary('纪要：第二段', '[Stage 1]: 纪要：第一段'), '[Stage 1]: 纪要：第一段\n\n[Stage 2]: 纪要：第二段');
+    assert.ok(mod.formatFinalSummary('纪要：第三段', '[Stage 20]: 旧纪要').startsWith('[Stage 20]: 旧纪要\n\n[Stage 21]:'));
+});
+
+test('reads a summary marker on the latest chat message', () => {
+    const chat = [{ is_user: true, mes: 'user' }, { is_user: false, mes: 'assistant', extra: { memory: '' } }];
+    assert.strictEqual(mod.getLatestMemoryFromChat(chat), '');
+    assert.strictEqual(mod.getIndexOfLatestChatSummary(chat), 1);
+    assert.strictEqual(mod.getSummaryProgress(chat).assistantTurnsSinceLastSummary, 0);
 });
 
 test('counts automatic update frequency by assistant replies after the latest summary marker', () => {
@@ -128,6 +136,9 @@ await testAsync('keeps the cumulative window start while expanding its end and i
     assert.ok(expanded.rawPrompt.includes('m1'));
     assert.ok(expanded.rawPrompt.includes('m4'));
     assert.ok(expanded.rawPrompt.includes('[Stage 1]: 旧纪要'));
+    const all = await mod.getRawSummaryPrompt({ chat }, 'system', 0, null, '');
+    assert.strictEqual(all.messageCount, 5);
+    assert.ok(all.rawPrompt.includes('m5'));
 });
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);

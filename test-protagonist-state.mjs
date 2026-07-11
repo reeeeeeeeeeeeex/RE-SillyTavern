@@ -20,6 +20,7 @@ code = code.replace(/export\s+async\s+function\s+init/, 'async function init');
 
 // Mock globals used by the module.
 const mocks = {
+    getStringHash: value => String(value || '').split('').reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 0),
     eventSource: { on: () => {} },
     event_types: {},
     saveSettingsDebounced: () => {},
@@ -42,7 +43,8 @@ return {
   readDatabaseSnapshot, formatTable, getEnglishColumns, buildCurrentStateText, SHEET_MAP,
   extractTableEditBlock, parseStructuredEdits, applyEditsToSnapshot, buildStateUpdateSystemPrompt,
   selectUpdateHistoryMessages, buildStateUpdateRequestMessages, getSelectedTableKeys,
-  renderEditableStateRecords, ensureSheetContent, renderPopupContent, getTimelineContextForMemory
+  renderEditableStateRecords, ensureSheetContent, renderPopupContent, getTimelineContextForMemory,
+  getAssistantTurnsSinceStateUpdate, hasStateUpdateMarker
 };
 } catch (e) { console.error('IIFE eval error:', e); throw e; }
 }`;
@@ -440,6 +442,19 @@ test('selects all non-system messages when the history limit is zero', () => {
 test('selects the latest N non-system messages in chronological order', () => {
     const selected = mod.selectUpdateHistoryMessages(updateHistoryChat, 4, 2);
     assert.deepStrictEqual(selected.map(x => x.mes), ['second user message', 'second assistant reply']);
+});
+
+test('counts automatic state updates from the latest successful marker', () => {
+    const chat = [
+        { is_user: false, mes: 'old assistant', extra: { protagonist_state_updated: 1 } },
+        { is_user: true, mes: 'new user' },
+        { is_user: false, mes: 'new assistant 1' },
+        { is_user: false, mes: 'new assistant 2' },
+    ];
+    assert.strictEqual(mod.getAssistantTurnsSinceStateUpdate(chat, 3), 2);
+    chat[3].extra = { protagonist_state_updated: 2 };
+    assert.strictEqual(mod.hasStateUpdateMarker(chat[3]), true);
+    assert.strictEqual(mod.getAssistantTurnsSinceStateUpdate(chat, 3), 0);
 });
 
 test('adds Memory Summary only when the setting is enabled', () => {

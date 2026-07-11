@@ -36,6 +36,7 @@ let lastMessageHash = null;
 let lastMessageId = null;
 let inApiCall = false;
 let autoSummaryPending = false;
+let manualSummaryPending = false;
 
 /**
  * Count the number of tokens in the provided text.
@@ -529,7 +530,6 @@ function getLatestMemoryFromChat(chat) {
     }
 
     const reversedChat = chat.slice().reverse();
-    reversedChat.shift();
     for (let mes of reversedChat) {
         if (mes.extra && mes.extra.memory !== undefined && mes.extra.memory !== null) {
             return mes.extra.memory;
@@ -550,7 +550,6 @@ function getIndexOfLatestChatSummary(chat) {
     }
 
     const reversedChat = chat.slice().reverse();
-    reversedChat.shift();
     for (let mes of reversedChat) {
         if (mes.extra && mes.extra.memory !== undefined && mes.extra.memory !== null) {
             return chat.indexOf(mes);
@@ -712,14 +711,26 @@ async function onChatEvent() {
  * @returns {Promise<string>} Summarized text
  */
 async function forceSummarizeChat(quiet) {
+    if (manualSummaryPending) return '';
+    manualSummaryPending = true;
     const context = getContext();
+    $('#memory_force_summarize, #memory_manager_summarize').addClass('disabled').prop('disabled', true);
 
     const toast = quiet ? jQuery() : toastr.info('Summarizing chat...', 'Please wait', { timeOut: 0, extendedTimeOut: 0 });
-    const value = extension_settings.memory.source === summary_sources.main
-        ? await summarizeChatMain(context, true)
-        : await summarizeChatCustom(context, true);
-
-    toastr.clear(toast);
+    let value = '';
+    try {
+        value = extension_settings.memory.source === summary_sources.main
+            ? await summarizeChatMain(context, true)
+            : await summarizeChatCustom(context, true);
+    } catch (error) {
+        console.error('[Memory] Manual summary failed:', error);
+        toastr.error(`总结失败：${error.message || error}`);
+        return '';
+    } finally {
+        toastr.clear(toast);
+        $('#memory_force_summarize, #memory_manager_summarize').removeClass('disabled').prop('disabled', false);
+        manualSummaryPending = false;
+    }
 
     if (!value) {
         toastr.warning('Failed to summarize chat');
@@ -843,7 +854,10 @@ function formatFinalSummary(summary, existingSummary) {
         return `[Stage 1]: ${summary.trim()}`;
     }
 
-    const stageCount = (existingSummary.match(/\[Stage /g) || []).length + 1;
+    const stageNumbers = [...existingSummary.matchAll(/\[Stage\s+(\d+)\]/gi)]
+        .map(match => Number(match[1]))
+        .filter(Number.isFinite);
+    const stageCount = (stageNumbers.length ? Math.max(...stageNumbers) : 0) + 1;
     return `${existingSummary.trim()}\n\n[Stage ${stageCount}]: ${summary.trim()}`;
 }
 
@@ -980,9 +994,9 @@ async function summarizeChatCustom(context, force = false) {
     const manualRange = extension_settings.memory.manualSummarizeRange || 0;
     const autoRange = extension_settings.memory.autoSummarizeRange || 0;
     if (force && manualRange > 0) {
-        explicitStartIndex = Math.max(0, context.chat.length - 1 - manualRange);
+        explicitStartIndex = Math.max(0, context.chat.length - manualRange);
     } else if (!force && autoRange > 0) {
-        explicitStartIndex = Math.max(0, context.chat.length - 1 - autoRange);
+        explicitStartIndex = Math.max(0, context.chat.length - autoRange);
     }
 
     const windowStart = explicitStartIndex !== null
@@ -996,6 +1010,7 @@ async function summarizeChatCustom(context, force = false) {
     let latestSummary = '';
 
     while (true) {
+        if (isContextChanged(context)) break;
         const previousSummariesText = buildPreviousSummariesSection();
         const existingSummary = String($('#memory_contents').val() || '').trim();
         const systemPrompt = buildSummarySystemPrompt(basePrompt, wiText, existingSummary);
@@ -1028,13 +1043,14 @@ async function summarizeChatCustom(context, force = false) {
             ];
             const summary = await sendMemoryCustomApiRequest(messages);
 
+            if (isContextChanged(context)) break;
             const finalSummary = formatFinalSummary(normalizeTimelineSummary(summary, existingSummary), existingSummary);
             setMemoryContext(finalSummary, true, lastUsedIndex);
             latestSummary = finalSummary;
             console.log('[Memory Custom] Summary generated', summary);
 
-            // Check if we caught up to the end of the chat (excluding the very last message)
-            if (lastUsedIndex >= context.chat.length - 2) {
+            // Check if we caught up to the end of the chat.
+            if (lastUsedIndex >= context.chat.length - 1) {
                 break;
             }
 
@@ -1069,9 +1085,9 @@ async function summarizeChatMain(context, force) {
     const manualRange = extension_settings.memory.manualSummarizeRange || 0;
     const autoRange = extension_settings.memory.autoSummarizeRange || 0;
     if (force && manualRange > 0) {
-        explicitStartIndex = Math.max(0, context.chat.length - 1 - manualRange);
+        explicitStartIndex = Math.max(0, context.chat.length - manualRange);
     } else if (!force && autoRange > 0) {
-        explicitStartIndex = Math.max(0, context.chat.length - 1 - autoRange);
+        explicitStartIndex = Math.max(0, context.chat.length - autoRange);
     }
 
     const windowStart = explicitStartIndex !== null
@@ -1152,7 +1168,7 @@ async function summarizeChatMain(context, force) {
             setMemoryContext(finalSummary, true, index);
             latestSummary = finalSummary;
 
-            if (index >= context.chat.length - 2) {
+            if (index >= context.chat.length - 1) {
                 break;
             }
 
@@ -1202,7 +1218,6 @@ async function getRawSummaryPrompt(context, systemPrompt, explicitStartIndex = n
 
     const chat = context.chat.slice();
     const latestSummaryIndex = getIndexOfLatestChatSummary(chat);
-    chat.pop(); // We always exclude the last message from the buffer
     const chatBuffer = [];
     const PADDING = 64;
     const PROMPT_SIZE = await getSourceContextSize();
@@ -1246,11 +1261,10 @@ async function getRawSummaryPrompt(context, systemPrompt, explicitStartIndex = n
 function onMemoryRestoreClick() {
     const context = getContext();
     const reversedChat = context.chat.slice().reverse();
-    reversedChat.shift();
 
     // Always delete the latest stored memory entry, regardless of the current textarea content.
     for (let mes of reversedChat) {
-        if (mes.extra && mes.extra.memory) {
+        if (mes.extra && mes.extra.memory !== undefined && mes.extra.memory !== null) {
             delete mes.extra.memory;
             break;
         }
@@ -1297,7 +1311,7 @@ function setMemoryContext(value, saveToMessage, index = null) {
 
     const context = getContext();
     if (saveToMessage && context.chat.length) {
-        const idx = index ?? context.chat.length - 2;
+        const idx = index ?? context.chat.length - 1;
         const mes = context.chat[idx < 0 ? 0 : idx];
 
         if (!mes.extra) {
