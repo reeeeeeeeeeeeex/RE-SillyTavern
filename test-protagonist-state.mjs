@@ -462,6 +462,8 @@ test('state update prompt specifies tableEdit-only output and schemas', () => {
     assert.ok(prompt.includes('global_state: row_id, current_location'));
     assert.ok(prompt.includes('insertRow'));
     assert.ok(prompt.includes('global_state, protagonist_info, options: updateRow only'));
+    assert.ok(prompt.includes('existing business key'));
+    assert.ok(prompt.includes('inventory.quantity must remain a positive integer'));
     assert.ok(prompt.includes('do not justify inventing an exact timestamp'));
     assert.ok(prompt.includes('Memory Summary stores the detailed event history'));
     assert.ok(prompt.includes('roughly 200-300 Chinese characters'));
@@ -550,6 +552,82 @@ test('rejects unknown tables, rows, columns, row_id mutation, and structured val
         const result = mod.processTableEditResponse(`<tableEdit>${operation}</tableEdit>`, snapshot);
         assert.strictEqual(result.ok, false, operation);
     }
+});
+
+test('rejects duplicate business keys on insert across multi-row tables', () => {
+    const cases = [
+        {
+            table: 'important_characters', sheet: 'sheet_NcBlYRH5',
+            content: [['row_id', '姓名', '性别/年龄', '一句话介绍', '外貌特征', '持有的重要物品', '是否离场', '过往经历'], [1, '艾莉', '女/20', '', '', '', '否', '']],
+            cells: { name: ' 艾莉 ', gender_age: '女/20' },
+        },
+        {
+            table: 'protagonist_skills', sheet: 'sheet_lEARaBa8',
+            content: [['row_id', '技能名称', '技能类型', '等级', '效果'], [1, '火球术', '主动', '1', '']],
+            cells: { skill_name: '火球术', skill_type: '主动' },
+        },
+        {
+            table: 'inventory', sheet: 'sheet_in05z9vz',
+            content: [['row_id', '物品名称', '数量', '描述', '类别'], [1, '药水', '1', '', '消耗品']],
+            cells: { item_name: '药水', category: '消耗品' },
+        },
+        {
+            table: 'quests_events', sheet: 'sheet_etak47Ve',
+            content: [['row_id', '任务名称', '任务类型', '发布者', '描述', '进度', '时限', '奖励', '惩罚'], [1, '护送', '支线任务', '', '', '', '', '', '']],
+            cells: { quest_name: '护送', quest_type: '支线任务' },
+        },
+    ];
+    for (const item of cases) {
+        const snapshot = { [item.sheet]: { content: item.content } };
+        const result = mod.applyEditsToSnapshot(snapshot, [{ op: 'insertRow', table: item.table, cells: item.cells }]);
+        assert.strictEqual(result.ok, false, item.table);
+        assert.match(result.errors[0], /must be unique/i, item.table);
+        assert.strictEqual(result.snapshot[item.sheet].content.length, 2, item.table);
+    }
+});
+
+test('rejects missing or invalid required values and applies safe insert defaults', () => {
+    const inventory = {
+        sheet_in05z9vz: { content: [['row_id', '物品名称', '数量', '描述', '类别']] },
+    };
+    const missing = mod.applyEditsToSnapshot(inventory, [{ op: 'insertRow', table: 'inventory', cells: { item_name: '药水' } }]);
+    assert.strictEqual(missing.ok, false);
+    assert.match(missing.errors[0], /category/);
+
+    const inserted = mod.applyEditsToSnapshot(inventory, [{ op: 'insertRow', table: 'inventory', cells: { item_name: '药水', category: '消耗品' } }]);
+    assert.strictEqual(inserted.ok, true);
+    assert.strictEqual(inserted.snapshot.sheet_in05z9vz.content[1][2], '1');
+
+    const invalidQuantity = mod.applyEditsToSnapshot(inserted.snapshot, [{ op: 'updateRow', table: 'inventory', rowId: 1, cells: { quantity: '0' } }]);
+    assert.strictEqual(invalidQuantity.ok, false);
+    assert.match(invalidQuantity.errors[0], /positive integer/);
+
+    const characters = {
+        sheet_NcBlYRH5: { content: [['row_id', '姓名', '性别/年龄', '一句话介绍', '外貌特征', '持有的重要物品', '是否离场', '过往经历']] },
+    };
+    const character = mod.applyEditsToSnapshot(characters, [{ op: 'insertRow', table: 'important_characters', cells: { name: '艾莉', gender_age: '女/20' } }]);
+    assert.strictEqual(character.ok, true);
+    assert.strictEqual(character.snapshot.sheet_NcBlYRH5.content[1][6], '否');
+    const invalidAbsent = mod.applyEditsToSnapshot(character.snapshot, [{ op: 'updateRow', table: 'important_characters', rowId: 1, cells: { is_absent: '未知' } }]);
+    assert.strictEqual(invalidAbsent.ok, false);
+});
+
+test('allows unrelated updates with legacy duplicates but rejects creating a new duplicate by rename', () => {
+    const snapshot = {
+        sheet_NcBlYRH5: {
+            content: [
+                ['row_id', '姓名', '性别/年龄', '一句话介绍', '外貌特征', '持有的重要物品', '是否离场', '过往经历'],
+                [1, '赵无极', '男/50', '', '', '', '否', '旧记录一'],
+                [2, '赵无极', '男/50', '', '', '', '否', '旧记录二'],
+                [3, '弗兰德', '男/50', '', '', '', '否', ''],
+            ],
+        },
+    };
+    const unrelated = mod.applyEditsToSnapshot(snapshot, [{ op: 'updateRow', table: 'important_characters', rowId: 1, cells: { past_experience: '压缩后的记录' } }]);
+    assert.strictEqual(unrelated.ok, true);
+    const rename = mod.applyEditsToSnapshot(snapshot, [{ op: 'updateRow', table: 'important_characters', rowId: 3, cells: { name: '赵无极' } }]);
+    assert.strictEqual(rename.ok, false);
+    assert.match(rename.errors[0], /must be unique/i);
 });
 
 test('distinguishes a valid empty edit from a malformed non-empty edit', () => {

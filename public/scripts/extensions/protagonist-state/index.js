@@ -65,6 +65,29 @@ const TABLE_ALLOWED_OPERATIONS = {
     options: ['updateRow'],
 };
 
+const TABLE_WRITE_CONSTRAINTS = {
+    important_characters: {
+        uniqueColumn: 'name',
+        requiredColumns: ['name', 'gender_age', 'is_absent'],
+        defaults: { is_absent: '否' },
+        allowedValues: { is_absent: ['是', '否'] },
+    },
+    protagonist_skills: {
+        uniqueColumn: 'skill_name',
+        requiredColumns: ['skill_name', 'skill_type'],
+    },
+    inventory: {
+        uniqueColumn: 'item_name',
+        requiredColumns: ['item_name', 'quantity', 'category'],
+        defaults: { quantity: '1' },
+        positiveIntegerColumns: ['quantity'],
+    },
+    quests_events: {
+        uniqueColumn: 'quest_name',
+        requiredColumns: ['quest_name', 'quest_type'],
+    },
+};
+
 const defaultSettings = {
     enabled: true,
     position: extension_prompt_types.IN_CHAT,
@@ -167,6 +190,63 @@ function getEnglishColumns(sheetData, tableKey) {
 function cloneValue(value) {
     if (value === undefined) return undefined;
     return JSON.parse(JSON.stringify(value));
+}
+
+function isBlankCellValue(value) {
+    return value === null || value === undefined || String(value).trim() === '';
+}
+
+function normalizeUniqueCellValue(value) {
+    return String(value ?? '').trim().toLocaleLowerCase();
+}
+
+function validateConstrainedRow(tableKey, content, columns, row, { operation, previousRow = null, rowIndex = -1 } = {}) {
+    const constraints = TABLE_WRITE_CONSTRAINTS[tableKey];
+    if (!constraints) return null;
+
+    for (const column of constraints.requiredColumns || []) {
+        const columnIndex = columns.indexOf(column);
+        const wasSupplied = operation === 'insertRow'
+            || (previousRow && row[columnIndex] !== previousRow[columnIndex]);
+        if (wasSupplied && isBlankCellValue(row[columnIndex])) {
+            return `${operation} for ${tableKey} requires a non-empty ${column}.`;
+        }
+    }
+
+    for (const [column, allowed] of Object.entries(constraints.allowedValues || {})) {
+        const columnIndex = columns.indexOf(column);
+        const wasSupplied = operation === 'insertRow'
+            || (previousRow && row[columnIndex] !== previousRow[columnIndex]);
+        if (wasSupplied && !allowed.includes(String(row[columnIndex] ?? '').trim())) {
+            return `Column "${column}" in ${tableKey} must be one of: ${allowed.join(', ')}.`;
+        }
+    }
+
+    for (const column of constraints.positiveIntegerColumns || []) {
+        const columnIndex = columns.indexOf(column);
+        const wasSupplied = operation === 'insertRow'
+            || (previousRow && row[columnIndex] !== previousRow[columnIndex]);
+        const number = Number(row[columnIndex]);
+        if (wasSupplied && (!Number.isInteger(number) || number <= 0)) {
+            return `Column "${column}" in ${tableKey} must be a positive integer.`;
+        }
+    }
+
+    const uniqueColumn = constraints.uniqueColumn;
+    if (uniqueColumn) {
+        const columnIndex = columns.indexOf(uniqueColumn);
+        const value = normalizeUniqueCellValue(row[columnIndex]);
+        const previousValue = previousRow ? normalizeUniqueCellValue(previousRow[columnIndex]) : null;
+        if (operation === 'insertRow' || value !== previousValue) {
+            const duplicate = content.some((candidate, candidateIndex) => candidateIndex > 0
+                && candidateIndex !== rowIndex
+                && normalizeUniqueCellValue(candidate?.[columnIndex]) === value);
+            if (duplicate) {
+                return `${tableKey}.${uniqueColumn} must be unique; "${String(row[columnIndex]).trim()}" already exists. Use updateRow for the existing row.`;
+            }
+        }
+    }
+    return null;
 }
 
 function mergePastExperienceValues(legacyValue, currentValue) {
@@ -581,6 +661,15 @@ function applyEditsToSnapshot(snapshot, ops) {
                     const ci = cols.indexOf(k);
                     newRow[ci] = v;
                 }
+                const constraintError = validateConstrainedRow(op.table, content, cols, newRow, {
+                    operation: op.op,
+                    previousRow: content[rowIdx],
+                    rowIndex: rowIdx,
+                });
+                if (constraintError) {
+                    errors.push(constraintError);
+                    break;
+                }
                 if (JSON.stringify(newRow) !== JSON.stringify(content[rowIdx])) changedCount++;
                 content[rowIdx] = newRow;
             }
@@ -588,9 +677,15 @@ function applyEditsToSnapshot(snapshot, ops) {
             const maxId = content.reduce((mx, r, i) => (i > 0 && r && r[0] != null ? Math.max(mx, Number(r[0]) || 0) : mx), 0);
             const newRow = new Array(cols.length).fill('');
             newRow[0] = maxId + 1;
-            for (const [k, v] of Object.entries(op.cells)) {
+            const insertCells = { ...(TABLE_WRITE_CONSTRAINTS[op.table]?.defaults || {}), ...op.cells };
+            for (const [k, v] of Object.entries(insertCells)) {
                 const ci = cols.indexOf(k);
                 if (ci !== -1) newRow[ci] = v;
+            }
+            const constraintError = validateConstrainedRow(op.table, content, cols, newRow, { operation: op.op });
+            if (constraintError) {
+                errors.push(constraintError);
+                break;
             }
             content.push(newRow);
             changedCount++;
@@ -805,6 +900,9 @@ Allowed operations are strict:
 - important_characters: updateRow or insertRow; never delete.
 - protagonist_skills, inventory, quests_events: updateRow, insertRow, or deleteRow.
 - Never include row_id inside the JSON cells object.
+- Before insertRow, compare the table's existing business key: important_characters.name, protagonist_skills.skill_name, inventory.item_name, or quests_events.quest_name. If it already exists, update that row instead of inserting a duplicate.
+- insertRow must include all required identity fields: important_characters requires name and gender_age (is_absent defaults to 否); protagonist_skills requires skill_name and skill_type; inventory requires item_name and category (quantity defaults to 1); quests_events requires quest_name and quest_type.
+- Never clear a required identity field. inventory.quantity must remain a positive integer, and important_characters.is_absent must be exactly 是 or 否.
 
 State-table content policy:
 - Memory Summary stores the detailed event history. The protagonist-state tables store only current facts and compact conclusions that remain useful in later scenes. Use conversation history and Memory Summary as evidence, but do not copy their scene-by-scene narration into table cells.
