@@ -13,7 +13,12 @@ import { debounce_timeout } from '../../constants.js';
 import { debounce, getStringHash } from '../../utils.js';
 
 const MODULE_NAME = 'protagonist_state';
-const LEGACY_CHRONICLE_SHEET = 'sheet_3NoMc1wI';
+const DISCARDED_SHEET_KEYS = new Set(['sheet_3NoMc1wI']);
+
+function isDiscardedSheet(sheetKey, sheet) {
+    const name = String(sheet?.name ?? '').trim();
+    return DISCARDED_SHEET_KEYS.has(sheetKey) || name === '纪要表' || name === '总结表';
+}
 
 // Reverse-lookup helpers built from SHEET_MAP below.
 const SHEET_MAP = {
@@ -46,6 +51,9 @@ const TABLE_COLUMNS = {
     quests_events: ['row_id', 'quest_name', 'quest_type', 'issuer', 'detail_desc', 'current_progress', 'time_limit', 'reward', 'penalty'],
     options: ['row_id', 'option_1', 'option_2', 'option_3', 'option_4'],
 };
+
+const IMPORTANT_CHARACTER_HEADERS = ['row_id', '姓名', '性别/年龄', '一句话介绍', '外貌特征', '持有的重要物品', '是否离场', '过往经历'];
+const LEGACY_IMPORTANT_CHARACTER_HEADERS = ['姓名', '性别/年龄', '外貌特征', '持有的重要物品', '是否离场', '过往经历'];
 
 const TABLE_ALLOWED_OPERATIONS = {
     global_state: ['updateRow'],
@@ -161,6 +169,43 @@ function cloneValue(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
+function mergePastExperienceValues(legacyValue, currentValue) {
+    const legacy = String(legacyValue ?? '').trim();
+    const current = String(currentValue ?? '').trim();
+    if (!legacy) return current;
+    if (!current) return legacy;
+    if (legacy === current) return legacy;
+    if (current.includes(legacy)) return current;
+    if (legacy.includes(current)) return legacy;
+    return `${legacy}\n${current}`;
+}
+
+function normalizeKnownSheetLayouts(snapshot) {
+    const sheet = snapshot?.[TABLE_TO_SHEET.important_characters];
+    const content = sheet?.content;
+    if (!Array.isArray(content) || !Array.isArray(content[0])) return 0;
+    const header = content[0];
+    const legacyLabels = header.slice(1).map(value => String(value ?? '').trim());
+    const isLegacyLayout = header.length === 7
+        && LEGACY_IMPORTANT_CHARACTER_HEADERS.every((label, index) => legacyLabels[index] === label);
+    if (!isLegacyLayout) return 0;
+
+    sheet.content = [IMPORTANT_CHARACTER_HEADERS, ...content.slice(1).map(row => {
+        if (!Array.isArray(row)) return row;
+        return [
+            row[0],
+            row[1],
+            row[2],
+            '',
+            row[3],
+            row[4],
+            row[5],
+            mergePastExperienceValues(row[6], row[7]),
+        ];
+    })];
+    return 1;
+}
+
 function normalizeSnapshotRowIds(snapshot) {
     if (!snapshot || typeof snapshot !== 'object') return 0;
     let repairedCount = 0;
@@ -252,15 +297,13 @@ function readDatabaseSnapshot(chat) {
     const merged = {};
     const covered = new Set();
     const pendingDeltas = [];
-    // Legacy chronicle data is not displayed or injected, but must be read before
-    // creating a fresh checkpoint so editing another state table never drops it.
-    const knownSheets = [...Object.keys(SHEET_MAP), LEGACY_CHRONICLE_SHEET];
+    const knownSheets = Object.keys(SHEET_MAP);
 
     function collect(data) {
         const newly = [];
         if (!data || typeof data !== 'object') return newly;
         for (const sk of Object.keys(data)) {
-            if (!sk.startsWith('sheet_') || covered.has(sk)) continue;
+            if (!sk.startsWith('sheet_') || isDiscardedSheet(sk, data[sk]) || covered.has(sk)) continue;
             const table = data[sk];
             if (!table || typeof table !== 'object') continue;
             merged[sk] = JSON.parse(JSON.stringify(table));
@@ -314,6 +357,7 @@ function readDatabaseSnapshot(chat) {
         return null;
     }
     if (!Object.keys(merged).length) return null;
+    normalizeKnownSheetLayouts(merged);
     normalizeSnapshotRowIds(merged);
     return merged;
 }
@@ -471,6 +515,7 @@ function applyEditsToSnapshot(snapshot, ops) {
         return { ok: false, snapshot, appliedCount: 0, changedCount: 0, repairedCount: 0, errors: ['Missing snapshot or operations.'] };
     }
     const working = cloneValue(snapshot);
+    normalizeKnownSheetLayouts(working);
     const repairedCount = normalizeSnapshotRowIds(working);
     let appliedCount = 0;
     let changedCount = 0;
@@ -567,6 +612,7 @@ function processTableEditResponse(aiResponse, snapshot) {
     }
     if (!block.trim()) {
         const working = cloneValue(snapshot);
+        normalizeKnownSheetLayouts(working);
         const repairedCount = normalizeSnapshotRowIds(working);
         return { ok: true, snapshot: working, appliedCount: 0, changedCount: 0, repairedCount, errors: [] };
     }

@@ -43,7 +43,8 @@ return {
   parseDDLColumns, sheetContentToObjects, applyTableDelta, detectIsolationKey,
   readDatabaseSnapshot, formatTable, getEnglishColumns, buildCurrentStateText, SHEET_MAP,
   extractTableEditBlock, parseStructuredEdits, applyEditsToSnapshot, processTableEditResponse,
-  normalizeSnapshotRowIds, buildStateUpdateSystemPrompt, writeSnapshotToChat, isTargetStillCurrent,
+  normalizeSnapshotRowIds, normalizeKnownSheetLayouts, mergePastExperienceValues,
+  buildStateUpdateSystemPrompt, writeSnapshotToChat, isTargetStillCurrent,
   selectUpdateHistoryMessages, buildStateUpdateRequestMessages, getSelectedTableKeys,
   renderEditableStateRecords, ensureSheetContent, renderPopupContent, getTimelineContextForMemory,
   getAssistantTurnsSinceStateUpdate, hasStateUpdateMarker
@@ -147,6 +148,36 @@ test('falls back to header keys when no English columns provided', () => {
 test('handles empty sheet', () => {
     assert.deepStrictEqual(mod.sheetContentToObjects({ content: [] }, []), []);
     assert.deepStrictEqual(mod.sheetContentToObjects(null, []), []);
+});
+
+console.log('=== known legacy sheet layout migration ===');
+test('repairs the legacy important-character header and merges duplicate past experience', () => {
+    const snapshot = {
+        sheet_NcBlYRH5: {
+            content: [
+                [null, '姓名', '性别/年龄', '外貌特征', '持有的重要物品', '是否离场', '过往经历'],
+                [1, 'A', '女/20', '稳定外貌', '重要物品', '否', '原有经历', '原有经历'],
+                [2, 'B', '男/21', '辨识特征', '', '是', '旧关系', '旧关系；当前关系'],
+                [3, 'C', '', '', '', '否', '旧事实', '不重叠的新事实'],
+            ],
+        },
+    };
+    assert.strictEqual(mod.normalizeKnownSheetLayouts(snapshot), 1);
+    assert.deepStrictEqual(snapshot.sheet_NcBlYRH5.content[0], ['row_id', '姓名', '性别/年龄', '一句话介绍', '外貌特征', '持有的重要物品', '是否离场', '过往经历']);
+    assert.deepStrictEqual(snapshot.sheet_NcBlYRH5.content[1], [1, 'A', '女/20', '', '稳定外貌', '重要物品', '否', '原有经历']);
+    assert.strictEqual(snapshot.sheet_NcBlYRH5.content[2][7], '旧关系；当前关系');
+    assert.strictEqual(snapshot.sheet_NcBlYRH5.content[3][7], '旧事实\n不重叠的新事实');
+});
+
+test('does not remap an already canonical important-character sheet', () => {
+    const snapshot = {
+        sheet_NcBlYRH5: {
+            content: [['row_id', '姓名', '性别/年龄', '一句话介绍', '外貌特征', '持有的重要物品', '是否离场', '过往经历'], [1, 'A', '', '简介', '外貌', '', '否', '经历']],
+        },
+    };
+    const before = JSON.stringify(snapshot);
+    assert.strictEqual(mod.normalizeKnownSheetLayouts(snapshot), 0);
+    assert.strictEqual(JSON.stringify(snapshot), before);
 });
 
 console.log('=== applyTableDelta ===');
@@ -444,16 +475,16 @@ test('state update prompt specifies tableEdit-only output and schemas', () => {
     assert.ok(!/魂骨|soul\s*bone/i.test(prompt));
 });
 
-test('repairs missing, invalid, and duplicate active row IDs without touching legacy chronicle', () => {
+test('repairs missing, invalid, and duplicate active row IDs without touching unrelated sheets', () => {
     const snapshot = {
         sheet_dCudvUnH: { content: [['row_id'], [null], [''], [-2], [4], [4]] },
         sheet_in05z9vz: { content: [['row_id'], [2], [null], [1]] },
-        sheet_3NoMc1wI: { content: [['row_id'], [null]] },
+        sheet_custom: { content: [['row_id'], [null]] },
     };
     assert.strictEqual(mod.normalizeSnapshotRowIds(snapshot), 5);
     assert.deepStrictEqual(snapshot.sheet_dCudvUnH.content.slice(1).map(row => row[0]), [1, 2, 3, 4, 5]);
     assert.deepStrictEqual(snapshot.sheet_in05z9vz.content.slice(1).map(row => row[0]), [2, 3, 1]);
-    assert.strictEqual(snapshot.sheet_3NoMc1wI.content[1][0], null);
+    assert.strictEqual(snapshot.sheet_custom.content[1][0], null);
 });
 
 test('updates a formerly null singleton row through its repaired row_id', () => {
@@ -675,7 +706,7 @@ test('does not expose legacy chronicle as an active state table', () => {
     assert.ok(!Object.values(mod.SHEET_MAP).some(table => table.key === 'chronicle'));
 });
 
-test('preserves a legacy chronicle sheet when reading a snapshot for later checkpoint saves', () => {
+test('discards a legacy chronicle sheet when reading a snapshot', () => {
     const chat = [{
         is_user: false,
         TavernDB_ACU_IsolatedData: {
@@ -683,12 +714,14 @@ test('preserves a legacy chronicle sheet when reading a snapshot for later check
                 independentData: {
                     sheet_dCudvUnH: { content: [['row_id'], [1]] },
                     sheet_3NoMc1wI: { name: '纪要表', content: [['row_id'], [1]] },
+                    sheet_old_summary: { name: '总结表', content: [['row_id'], [1]] },
                 },
             },
         },
     }];
     const snapshot = mod.readDatabaseSnapshot(chat);
-    assert.ok(snapshot.sheet_3NoMc1wI, 'legacy chronicle must remain in the raw snapshot');
+    assert.ok(!snapshot.sheet_3NoMc1wI, 'legacy chronicle must not survive snapshot reconstruction');
+    assert.ok(!snapshot.sheet_old_summary, 'legacy summary aliases must not survive snapshot reconstruction');
 });
 
 console.log('=== atomic snapshot save ===');

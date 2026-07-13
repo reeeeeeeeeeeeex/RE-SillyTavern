@@ -9471,9 +9471,6 @@ $CONTENT
                 const modifiedKeys = tagData.modifiedKeys || [];
                 const updateGroupKeys = tagData.updateGroupKeys || [];
                 Object.keys(independentData).forEach(storedSheetKey => {
-                    if (carryLegacyChronicleSheet_ACU(independentData, storedSheetKey, mergedData, foundSheets)) {
-                        return;
-                    }
                     // [新增] 只处理当前模板/指导表中存在的表格
                     if (!templateSheetKeySet.has(storedSheetKey)) {
                         logDebug_ACU(`[Merge] Skipping sheet [${storedSheetKey}] - not in current template/guide`);
@@ -9521,9 +9518,6 @@ $CONTENT
                     const modifiedKeys = readModifiedKeys_ACU(message);
                     const updateGroupKeys = readUpdateGroupKeys_ACU(message);
                     Object.keys(independentData).forEach(storedSheetKey => {
-                        if (carryLegacyChronicleSheet_ACU(independentData, storedSheetKey, mergedData, foundSheets)) {
-                            return;
-                        }
                         // [新增] 只处理当前模板/指导表中存在的表格
                         if (!templateSheetKeySet.has(storedSheetKey)) {
                             logDebug_ACU(`[Merge] Skipping sheet [${storedSheetKey}] (legacy) - not in current template/guide`);
@@ -9556,9 +9550,6 @@ $CONTENT
                 if (legacyStdData) {
                     const standardData = legacyStdData;
                     Object.keys(standardData).forEach(k => {
-                        if (carryLegacyChronicleSheet_ACU(standardData, k, mergedData, foundSheets)) {
-                            return;
-                        }
                         // [新增] 只处理当前模板/指导表中存在的表格
                         if (!templateSheetKeySet.has(k)) {
                             return;
@@ -9577,9 +9568,6 @@ $CONTENT
                 if (legacySumData) {
                     const summaryData = legacySumData;
                     Object.keys(summaryData).forEach(k => {
-                        if (carryLegacyChronicleSheet_ACU(summaryData, k, mergedData, foundSheets)) {
-                            return;
-                        }
                         // [新增] 只处理当前模板/指导表中存在的表格
                         if (!templateSheetKeySet.has(k)) {
                             return;
@@ -9662,8 +9650,6 @@ $CONTENT
         // 2) 对指导表中缺失的表：使用指导表结构作为初始值（seedRows 仅保留字段，不默认展开到 content）
         // 3) 对于存在历史数据的表：以历史数据为主，但表名/表头/参数/顺序以指导表为准；不把 seedRows 合并进真实数据行
         if (hasSheetGuide) {
-            const hiddenLegacySheets = Object.fromEntries(Object.entries(mergedData)
-                .filter(([key, sheet]) => isLegacyChronicleSheet_ACU(key, sheet)));
             const guided = materializeDataFromSheetGuide_ACU(sheetGuideData, { includeSeedRows: false });
             const guideKeys = getSortedSheetKeys_ACU(guided, { ignoreChatGuide: true, includeMissingFromGuide: true });
             guideKeys.forEach(k => {
@@ -9730,7 +9716,6 @@ $CONTENT
                 }
             });
             mergedData = guided;
-            Object.assign(mergedData, hiddenLegacySheets);
         }
         // [修复] 合并结果按"用户手动顺序/模板顺序"重排，避免合并过程导致的随机乱序
         const orderedKeys = getSortedSheetKeys_ACU(mergedData);
@@ -22393,17 +22378,12 @@ $CONTENT
      * Sheet 排序和清洗（E 组）
      */
     function isLegacyChronicleSheet_ACU(sheetKey, sheet) {
-        return sheetKey === 'sheet_3NoMc1wI' || String(sheet?.name || '') === '纪要表';
+        const name = String(sheet?.name || '').trim();
+        return sheetKey === 'sheet_3NoMc1wI' || name === '纪要表' || name === '总结表';
     }
     function getActiveSheetKeys_ACU(dataObj) {
         if (!dataObj || typeof dataObj !== 'object') return [];
         return Object.keys(dataObj).filter(key => key.startsWith('sheet_') && !isLegacyChronicleSheet_ACU(key, dataObj[key]));
-    }
-    function carryLegacyChronicleSheet_ACU(source, sheetKey, target, found) {
-        if (!isLegacyChronicleSheet_ACU(sheetKey, source?.[sheetKey]) || found[sheetKey] || !source?.[sheetKey]) return false;
-        target[sheetKey] = JSON.parse(JSON.stringify(source[sheetKey]));
-        found[sheetKey] = true;
-        return true;
     }
     function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
         if (!dataObj || typeof dataObj !== 'object')
@@ -22495,11 +22475,6 @@ $CONTENT
         keys.forEach(k => {
             if (dataObj[k])
                 out[k] = dataObj[k];
-        });
-        // Hidden legacy data must survive a reorder/checkpoint cycle even though it
-        // is excluded from active navigation, prompt assembly, and rendering.
-        Object.keys(dataObj).filter(k => isLegacyChronicleSheet_ACU(k, dataObj[k])).forEach(k => {
-            if (dataObj[k]) out[k] = dataObj[k];
         });
         return out;
     }
