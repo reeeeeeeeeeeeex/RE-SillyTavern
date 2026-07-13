@@ -19,20 +19,21 @@ code = code.replace(/extension_prompt_roles\.ASSISTANT/g, '2');
 code = code.replace(/export\s+async\s+function\s+init/, 'async function init');
 
 // Mock globals used by the module.
+let currentContext = { chat: [] };
 const mocks = {
     getStringHash: value => String(value || '').split('').reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 0),
     eventSource: { on: () => {} },
     event_types: {},
     saveSettingsDebounced: () => {},
     setExtensionPrompt: () => {},
-    getContext: () => ({ chat: [] }),
+    getContext: () => currentContext,
     extension_settings: { protagonistState: {} },
     renderExtensionTemplateAsync: async () => '',
     debounce_timeout: { default: 100 },
     debounce: (fn) => fn,
     window: {},
     $: () => ({ prop: () => {}, val: () => {}, trigger: () => {}, length: 0, off: () => ({ on: () => {} }) }),
-    toastr: { success: () => {}, warning: () => {} },
+    toastr: { success: () => {}, warning: () => {}, info: () => {}, error: () => {}, clear: () => {} },
 };
 
 const wrapped = `async () => {
@@ -41,7 +42,8 @@ ${code}
 return {
   parseDDLColumns, sheetContentToObjects, applyTableDelta, detectIsolationKey,
   readDatabaseSnapshot, formatTable, getEnglishColumns, buildCurrentStateText, SHEET_MAP,
-  extractTableEditBlock, parseStructuredEdits, applyEditsToSnapshot, buildStateUpdateSystemPrompt,
+  extractTableEditBlock, parseStructuredEdits, applyEditsToSnapshot, processTableEditResponse,
+  normalizeSnapshotRowIds, buildStateUpdateSystemPrompt, writeSnapshotToChat, isTargetStillCurrent,
   selectUpdateHistoryMessages, buildStateUpdateRequestMessages, getSelectedTableKeys,
   renderEditableStateRecords, ensureSheetContent, renderPopupContent, getTimelineContextForMemory,
   getAssistantTurnsSinceStateUpdate, hasStateUpdateMarker
@@ -78,6 +80,10 @@ let passed = 0;
 let failed = 0;
 function test(name, fn) {
     try { fn(); passed++; console.log(`  ✓ ${name}`); }
+    catch (e) { failed++; console.log(`  ✗ ${name}\n    ${e.message}`); }
+}
+async function asyncTest(name, fn) {
+    try { await fn(); passed++; console.log(`  ✓ ${name}`); }
     catch (e) { failed++; console.log(`  ✗ ${name}\n    ${e.message}`); }
 }
 
@@ -409,11 +415,14 @@ test('applies parsed update API operations using English column names', () => {
             content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [1, 'Forest', '09:00', '', '']],
         },
     };
-    mod.applyEditsToSnapshot(snapshot, [{
+    const result = mod.applyEditsToSnapshot(snapshot, [{
         op: 'updateRow', table: 'global_state', rowId: 1,
         cells: { current_location: 'Market', cur_time: '10:00' },
     }]);
-    assert.deepStrictEqual(snapshot.sheet_dCudvUnH.content[1], [1, 'Market', '10:00', '', '']);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.changedCount, 1);
+    assert.deepStrictEqual(result.snapshot.sheet_dCudvUnH.content[1], [1, 'Market', '10:00', '', '']);
+    assert.deepStrictEqual(snapshot.sheet_dCudvUnH.content[1], [1, 'Forest', '09:00', '', ''], 'input snapshot must remain untouched');
 });
 
 test('state update prompt specifies tableEdit-only output and schemas', () => {
@@ -421,6 +430,145 @@ test('state update prompt specifies tableEdit-only output and schemas', () => {
     assert.ok(prompt.includes('Return only one <tableEdit> block'));
     assert.ok(prompt.includes('global_state: row_id, current_location'));
     assert.ok(prompt.includes('insertRow'));
+    assert.ok(prompt.includes('global_state, protagonist_info, options: updateRow only'));
+    assert.ok(prompt.includes('do not justify inventing an exact timestamp'));
+    assert.ok(prompt.includes('Memory Summary stores the detailed event history'));
+    assert.ok(prompt.includes('roughly 200-300 Chinese characters'));
+    assert.ok(prompt.includes('roughly 80-160 Chinese characters'));
+    assert.ok(prompt.includes('rewrite and compress the entire past_experience field'));
+    assert.ok(prompt.includes('do not update that row merely to restyle or shorten it'));
+    assert.ok(prompt.includes('routine dialogue, action-by-action combat, travel paths'));
+    assert.ok(prompt.includes('concise semicolon-separated list of possessions'));
+    assert.ok(prompt.includes('Keep this definition setting-neutral'));
+    assert.ok(prompt.includes('All length targets above are soft guidance'));
+    assert.ok(!/魂骨|soul\s*bone/i.test(prompt));
+});
+
+test('repairs missing, invalid, and duplicate active row IDs without touching legacy chronicle', () => {
+    const snapshot = {
+        sheet_dCudvUnH: { content: [['row_id'], [null], [''], [-2], [4], [4]] },
+        sheet_in05z9vz: { content: [['row_id'], [2], [null], [1]] },
+        sheet_3NoMc1wI: { content: [['row_id'], [null]] },
+    };
+    assert.strictEqual(mod.normalizeSnapshotRowIds(snapshot), 5);
+    assert.deepStrictEqual(snapshot.sheet_dCudvUnH.content.slice(1).map(row => row[0]), [1, 2, 3, 4, 5]);
+    assert.deepStrictEqual(snapshot.sheet_in05z9vz.content.slice(1).map(row => row[0]), [2, 3, 1]);
+    assert.strictEqual(snapshot.sheet_3NoMc1wI.content[1][0], null);
+});
+
+test('updates a formerly null singleton row through its repaired row_id', () => {
+    const snapshot = {
+        sheet_dCudvUnH: {
+            sourceData: { ddl: globalDdl },
+            content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [null, 'Forest', '09:00', '', '']],
+        },
+    };
+    const result = mod.processTableEditResponse(`<tableEdit>\nupdateRow('global_state', 1, {"current_location":"Market","cur_time":"10:00"})\n</tableEdit>`, snapshot);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.repairedCount, 1);
+    assert.deepStrictEqual(result.snapshot.sheet_dCudvUnH.content[1], [1, 'Market', '10:00', '', '']);
+});
+
+test('preserves operation order from the model response', () => {
+    const block = `insertRow('inventory', {"item_name":"Potion"})\nupdateRow('global_state', 1, {"current_location":"Market"})\ndeleteRow('quests_events', 3)`;
+    assert.deepStrictEqual(mod.parseStructuredEdits(block).map(op => op.op), ['insertRow', 'updateRow', 'deleteRow']);
+});
+
+test('preserves apostrophes inside strict JSON cell values', () => {
+    const ops = mod.parseStructuredEdits(`insertRow('inventory', {"item_name":"King's sword","quantity":"1"})`);
+    assert.strictEqual(ops[0].cells.item_name, "King's sword");
+});
+
+test('preserves closing braces inside strict JSON string values', () => {
+    const ops = mod.parseStructuredEdits(`insertRow('inventory', {"item_name":"Rune } shard","quantity":"1"})`);
+    assert.strictEqual(ops[0].cells.item_name, 'Rune } shard');
+});
+
+test('rolls back the whole batch when a forbidden options delete follows a valid update', () => {
+    const snapshot = {
+        sheet_dCudvUnH: {
+            sourceData: { ddl: globalDdl },
+            content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [1, 'Forest', '09:00', '', '']],
+        },
+        sheet_OptionsNew: {
+            content: [['row_id', '选项一', '选项二', '选项三', '选项四'], [1, 'A', 'B', 'C', 'D']],
+        },
+    };
+    const result = mod.processTableEditResponse(`<tableEdit>\nupdateRow('global_state', 1, {"current_location":"Market"})\ndeleteRow('options', 1)\n</tableEdit>`, snapshot);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.errors[0].includes('not allowed'));
+    assert.strictEqual(snapshot.sheet_dCudvUnH.content[1][1], 'Forest');
+    assert.strictEqual(result.snapshot.sheet_dCudvUnH.content[1][1], 'Forest');
+});
+
+test('rejects unknown tables, rows, columns, row_id mutation, and structured values', () => {
+    const snapshot = {
+        sheet_dCudvUnH: {
+            sourceData: { ddl: globalDdl },
+            content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [1, 'Forest', '09:00', '', '']],
+        },
+    };
+    const invalidBlocks = [
+        `updateRow('missing', 1, {"value":"x"})`,
+        `updateRow('global_state', 9, {"current_location":"x"})`,
+        `updateRow('global_state', 1, {"missing_column":"x"})`,
+        `updateRow('global_state', 1, {"row_id":"2"})`,
+        `updateRow('global_state', 1, {"current_location":{"nested":"x"}})`,
+    ];
+    for (const operation of invalidBlocks) {
+        const result = mod.processTableEditResponse(`<tableEdit>${operation}</tableEdit>`, snapshot);
+        assert.strictEqual(result.ok, false, operation);
+    }
+});
+
+test('distinguishes a valid empty edit from a malformed non-empty edit', () => {
+    const snapshot = { sheet_dCudvUnH: { content: [['row_id'], [null]] } };
+    const empty = mod.processTableEditResponse('<tableEdit></tableEdit>', snapshot);
+    assert.strictEqual(empty.ok, true);
+    assert.strictEqual(empty.appliedCount, 0);
+    assert.strictEqual(empty.repairedCount, 1);
+    const malformed = mod.processTableEditResponse('<tableEdit>please update the location</tableEdit>', snapshot);
+    assert.strictEqual(malformed.ok, false);
+    assert.match(malformed.errors[0], /unparseable/i);
+});
+
+test('rejects a mixed block instead of silently applying only its valid operation', () => {
+    const snapshot = {
+        sheet_dCudvUnH: {
+            sourceData: { ddl: globalDdl },
+            content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [1, 'Forest', '09:00', '', '']],
+        },
+    };
+    const result = mod.processTableEditResponse(`<tableEdit>\nupdateRow('global_state', 1, {"current_location":"Market"})\ndeleteRow('options', nope)\n</tableEdit>`, snapshot);
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.snapshot.sheet_dCudvUnH.content[1][1], 'Forest');
+});
+
+test('counts legal same-value updates separately from material changes', () => {
+    const snapshot = {
+        sheet_dCudvUnH: {
+            sourceData: { ddl: globalDdl },
+            content: [['row_id', '地点', '时间', '上轮时间', '经过时间'], [1, 'Forest', '09:00', '', '']],
+        },
+    };
+    const result = mod.processTableEditResponse(`<tableEdit>updateRow('global_state', 1, {"current_location":"Forest"})</tableEdit>`, snapshot);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.appliedCount, 1);
+    assert.strictEqual(result.changedCount, 0);
+});
+
+test('keeps long relationship history values intact because length guidance is not enforced by the executor', () => {
+    const longHistory = '长期关系事实'.repeat(100);
+    const snapshot = {
+        sheet_NcBlYRH5: {
+            sourceData: { ddl: importantDdl },
+            content: [['row_id', '姓名', '性别/年龄', '简介', '外貌', '重要物品', '是否离场', '过往经历'], [1, 'A', '', '', '', '', '否', '旧关系']],
+        },
+    };
+    const response = `<tableEdit>updateRow('important_characters', 1, {"past_experience":"${longHistory}"})</tableEdit>`;
+    const result = mod.processTableEditResponse(response, snapshot);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.snapshot.sheet_NcBlYRH5.content[1][7], longHistory);
 });
 
 console.log('=== state update context ===');
@@ -541,6 +689,62 @@ test('preserves a legacy chronicle sheet when reading a snapshot for later check
     }];
     const snapshot = mod.readDatabaseSnapshot(chat);
     assert.ok(snapshot.sheet_3NoMc1wI, 'legacy chronicle must remain in the raw snapshot');
+});
+
+console.log('=== atomic snapshot save ===');
+await asyncTest('writes the snapshot and success marker to the exact target in one save', async () => {
+    const assistant = { is_user: false, is_system: false, mes: 'target reply', extra: {} };
+    let saves = 0;
+    currentContext = {
+        groupId: null, chatId: 'chat-a', characterId: 7, chat: [assistant],
+        saveChat: async () => { saves++; },
+    };
+    const target = { index: 0, assistantMessage: assistant, messageHash: mocks.getStringHash(assistant.mes) };
+    const snapshot = { sheet_dCudvUnH: { content: [['row_id'], [1]] } };
+    const saved = await mod.writeSnapshotToChat(snapshot, currentContext, target, 12345);
+    assert.strictEqual(saved, true);
+    assert.strictEqual(saves, 1);
+    assert.strictEqual(assistant.extra.protagonist_state_updated, 12345);
+    assert.deepStrictEqual(assistant.TavernDB_ACU_IsolatedData[''].independentData, snapshot);
+});
+
+await asyncTest('rejects a stale target when a newer assistant reply exists', async () => {
+    const targetMessage = { is_user: false, is_system: false, mes: 'old reply' };
+    const newerMessage = { is_user: false, is_system: false, mes: 'new reply' };
+    currentContext = {
+        groupId: null, chatId: 'chat-b', characterId: 7, chat: [targetMessage, newerMessage],
+        saveChat: async () => { throw new Error('must not save'); },
+    };
+    const target = { index: 0, assistantMessage: targetMessage, messageHash: mocks.getStringHash(targetMessage.mes) };
+    const saved = await mod.writeSnapshotToChat({ sheet_dCudvUnH: { content: [['row_id'], [1]] } }, currentContext, target, 1);
+    assert.strictEqual(saved, false);
+    assert.ok(!targetMessage.TavernDB_ACU_IsolatedData);
+    assert.ok(!targetMessage.extra);
+});
+
+await asyncTest('restores the previous in-memory snapshot and marker when saveChat fails', async () => {
+    const oldIsolation = { '': { independentData: { old_sheet: { content: [['row_id'], [1]] } } } };
+    const assistant = {
+        is_user: false, is_system: false, mes: 'target reply',
+        extra: { protagonist_state_updated: 99 },
+        TavernDB_ACU_IsolatedData: JSON.parse(JSON.stringify(oldIsolation)),
+    };
+    currentContext = {
+        groupId: null, chatId: 'chat-c', characterId: 7, chat: [assistant],
+        saveChat: async () => { throw new Error('disk failure'); },
+    };
+    const target = { index: 0, assistantMessage: assistant, messageHash: mocks.getStringHash(assistant.mes) };
+    const previousConsoleError = console.error;
+    console.error = () => {};
+    let saved;
+    try {
+        saved = await mod.writeSnapshotToChat({ sheet_dCudvUnH: { content: [['row_id'], [1]] } }, currentContext, target, 100);
+    } finally {
+        console.error = previousConsoleError;
+    }
+    assert.strictEqual(saved, false);
+    assert.deepStrictEqual(assistant.TavernDB_ACU_IsolatedData, oldIsolation);
+    assert.strictEqual(assistant.extra.protagonist_state_updated, 99);
 });
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);

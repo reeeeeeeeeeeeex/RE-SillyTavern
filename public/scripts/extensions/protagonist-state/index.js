@@ -47,6 +47,16 @@ const TABLE_COLUMNS = {
     options: ['row_id', 'option_1', 'option_2', 'option_3', 'option_4'],
 };
 
+const TABLE_ALLOWED_OPERATIONS = {
+    global_state: ['updateRow'],
+    protagonist_info: ['updateRow'],
+    important_characters: ['updateRow', 'insertRow'],
+    protagonist_skills: ['updateRow', 'insertRow', 'deleteRow'],
+    inventory: ['updateRow', 'insertRow', 'deleteRow'],
+    quests_events: ['updateRow', 'insertRow', 'deleteRow'],
+    options: ['updateRow'],
+};
+
 const defaultSettings = {
     enabled: true,
     position: extension_prompt_types.IN_CHAT,
@@ -144,6 +154,44 @@ function getEnglishColumns(sheetData, tableKey) {
     const ddl = sheetData?.sourceData?.ddl;
     const parsed = ddl ? parseDDLColumns(ddl) : [];
     return parsed.length ? parsed : (TABLE_COLUMNS[tableKey] || []);
+}
+
+function cloneValue(value) {
+    if (value === undefined) return undefined;
+    return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeSnapshotRowIds(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return 0;
+    let repairedCount = 0;
+    for (const sheetKey of Object.keys(SHEET_MAP)) {
+        const content = snapshot[sheetKey]?.content;
+        if (!Array.isArray(content)) continue;
+        const usedIds = new Set();
+        const rowsToRepair = [];
+        for (let rowIndex = 1; rowIndex < content.length; rowIndex++) {
+            const row = content[rowIndex];
+            if (!Array.isArray(row)) continue;
+            const numericId = Number(row[0]);
+            const validId = row[0] !== ''
+                && row[0] !== null
+                && row[0] !== undefined
+                && Number.isInteger(numericId)
+                && numericId > 0
+                && !usedIds.has(numericId);
+            if (validId) usedIds.add(numericId);
+            else rowsToRepair.push(row);
+        }
+        let nextId = 1;
+        for (const row of rowsToRepair) {
+            while (usedIds.has(nextId)) nextId++;
+            row[0] = nextId;
+            usedIds.add(nextId);
+            nextId++;
+            repairedCount++;
+        }
+    }
+    return repairedCount;
 }
 
 function detectIsolationKey(chat) {
@@ -265,7 +313,9 @@ function readDatabaseSnapshot(chat) {
         console.warn('[ProtagonistState] read snapshot failed:', e);
         return null;
     }
-    return Object.keys(merged).length > 0 ? merged : null;
+    if (!Object.keys(merged).length) return null;
+    normalizeSnapshotRowIds(merged);
+    return merged;
 }
 
 // ── Write ─────────────────────────────────────────────────────────────
@@ -276,27 +326,46 @@ function isSameChatContext(expectedContext, currentContext = getContext()) {
         && (currentContext.groupId || currentContext.characterId === expectedContext.characterId);
 }
 
-function isTargetStillCurrent(expectedContext, target) {
+function isTargetStillCurrent(expectedContext, target, requireLatestAssistant = false) {
     const currentContext = getContext();
     const currentTarget = currentContext.chat?.[target.index];
-    return isSameChatContext(expectedContext, currentContext)
+    const unchanged = isSameChatContext(expectedContext, currentContext)
         && currentTarget === target.assistantMessage
         && getStringHash(currentTarget?.mes || '') === target.messageHash;
+    if (!unchanged || !requireLatestAssistant) return unchanged;
+    for (let index = currentContext.chat.length - 1; index >= 0; index--) {
+        const message = currentContext.chat[index];
+        if (message && !message.is_user && !message.is_system && String(message.mes || '').trim()) {
+            return index === target.index && message === target.assistantMessage;
+        }
+    }
+    return false;
 }
 
-async function writeSnapshotToChat(snapshot, expectedContext = null) {
+async function writeSnapshotToChat(snapshot, expectedContext = null, target = null, markerValue = undefined) {
     const context = getContext();
     if (expectedContext && !isSameChatContext(expectedContext, context)) return false;
     const chat = context.chat;
     if (!Array.isArray(chat) || chat.length === 0) return false;
     const isolationKey = detectIsolationKey(chat);
-    // Find latest non-user message; fall back to last message.
-    let targetIdx = -1;
-    for (let i = chat.length - 1; i >= 0; i--) {
-        if (!chat[i].is_user) { targetIdx = i; break; }
+    let targetIdx = target?.index ?? -1;
+    if (target) {
+        if (!isTargetStillCurrent(expectedContext || context, target, true)) return false;
+    } else {
+        // Manual edits use the latest non-user message; API updates always pass
+        // their exact target so an in-flight result cannot drift to a newer turn.
+        for (let i = chat.length - 1; i >= 0; i--) {
+            if (!chat[i].is_user) { targetIdx = i; break; }
+        }
     }
     if (targetIdx === -1) targetIdx = chat.length - 1;
     const msg = chat[targetIdx];
+    if (!msg) return false;
+    const hadIsolationData = Object.hasOwn(msg, 'TavernDB_ACU_IsolatedData');
+    const previousIsolationData = hadIsolationData ? cloneValue(msg.TavernDB_ACU_IsolatedData) : undefined;
+    const hadExtra = Object.hasOwn(msg, 'extra');
+    const hadMarker = Object.hasOwn(msg.extra || {}, 'protagonist_state_updated');
+    const previousMarker = msg.extra?.protagonist_state_updated;
     if (!msg.TavernDB_ACU_IsolatedData || typeof msg.TavernDB_ACU_IsolatedData !== 'object') {
         msg.TavernDB_ACU_IsolatedData = {};
     }
@@ -307,10 +376,25 @@ async function writeSnapshotToChat(snapshot, expectedContext = null) {
         _acu_storage_mode: 'checkpoint',
         _acu_storage_version: 1,
     };
+    if (markerValue !== undefined) {
+        msg.extra = msg.extra || {};
+        msg.extra.protagonist_state_updated = markerValue;
+    }
     try {
         await context.saveChat();
         return true;
     } catch (e) {
+        if (hadIsolationData) msg.TavernDB_ACU_IsolatedData = previousIsolationData;
+        else delete msg.TavernDB_ACU_IsolatedData;
+        if (markerValue !== undefined) {
+            if (hadMarker) {
+                msg.extra = msg.extra || {};
+                msg.extra.protagonist_state_updated = previousMarker;
+            } else if (msg.extra) {
+                delete msg.extra.protagonist_state_updated;
+                if (!hadExtra && !Object.keys(msg.extra).length) delete msg.extra;
+            }
+        }
         console.error('[ProtagonistState] saveChat failed:', e);
         toastr.error('保存聊天失败');
         return false;
@@ -321,9 +405,9 @@ async function writeSnapshotToChat(snapshot, expectedContext = null) {
 function extractTableEditBlock(text) {
     if (typeof text !== 'string') return null;
     const re = /<tableEdit>([\s\S]*?)<\/tableEdit>/ig;
-    let last = null, m;
-    while ((m = re.exec(text)) !== null) last = m[1];
-    if (last) return last;
+    let last = null, found = false, m;
+    while ((m = re.exec(text)) !== null) { last = m[1]; found = true; }
+    if (found) return last;
     // Comment-wrapped fallback
     const cRe = /<!--([\s\S]*?)-->/g;
     while ((m = cRe.exec(text)) !== null) {
@@ -335,6 +419,8 @@ function extractTableEditBlock(text) {
 function parseLenientObject(str) {
     if (!str) return {};
     let s = str.trim();
+    // Preserve valid strict JSON verbatim, including apostrophes inside values.
+    try { return JSON.parse(s); } catch { /* try legacy lenient forms below */ }
     // Quote unquoted keys
     s = s.replace(/([{,]\s*)([a-zA-Z_]\w*)\s*:/g, '$1"$2":');
     // Single quotes -> double quotes
@@ -342,54 +428,115 @@ function parseLenientObject(str) {
     try { return JSON.parse(s); } catch { return null; }
 }
 
-function parseStructuredEdits(editsString) {
+function parseStructuredEditsDetailed(editsString) {
     const ops = [];
+    const errors = [];
     const cleaned = editsString.replace(/<!--|-->/g, '');
-    const updateRe = /updateRow\s*\(\s*['"]([^'"]+)['"]\s*,\s*(\d+)\s*,\s*(\{[\s\S]*?\})\s*\)/gi;
-    const insertRe = /insertRow\s*\(\s*['"]([^'"]+)['"]\s*,\s*(\{[\s\S]*?\})\s*\)/gi;
-    const deleteRe = /deleteRow\s*\(\s*['"]([^'"]+)['"]\s*,\s*(\d+)\s*\)/gi;
-    let m;
-    while ((m = updateRe.exec(cleaned)) !== null) {
-        const cells = parseLenientObject(m[3]);
-        if (cells) ops.push({ op: 'updateRow', table: m[1], rowId: Number(m[2]), cells });
+    const updateRe = /^updateRow\s*\(\s*(['"])([^'"]+)\1\s*,\s*(\d+)\s*,\s*(\{.*\})\s*\)$/i;
+    const insertRe = /^insertRow\s*\(\s*(['"])([^'"]+)\1\s*,\s*(\{.*\})\s*\)$/i;
+    const deleteRe = /^deleteRow\s*\(\s*(['"])([^'"]+)\1\s*,\s*(\d+)\s*\)$/i;
+    for (const rawLine of cleaned.split(/\r?\n/)) {
+        const line = rawLine.trim().replace(/;$/, '').trim();
+        if (!line) continue;
+        let match = line.match(updateRe);
+        if (match) {
+            const cells = parseLenientObject(match[4]);
+            if (cells) ops.push({ op: 'updateRow', table: match[2], rowId: Number(match[3]), cells });
+            else errors.push(`Could not parse updateRow cells for ${match[2]}.`);
+            continue;
+        }
+        match = line.match(insertRe);
+        if (match) {
+            const cells = parseLenientObject(match[3]);
+            if (cells) ops.push({ op: 'insertRow', table: match[2], cells });
+            else errors.push(`Could not parse insertRow cells for ${match[2]}.`);
+            continue;
+        }
+        match = line.match(deleteRe);
+        if (match) {
+            ops.push({ op: 'deleteRow', table: match[2], rowId: Number(match[3]) });
+            continue;
+        }
+        errors.push(`Unparseable <tableEdit> line: ${line.slice(0, 120)}`);
     }
-    while ((m = insertRe.exec(cleaned)) !== null) {
-        const cells = parseLenientObject(m[2]);
-        if (cells) ops.push({ op: 'insertRow', table: m[1], cells });
-    }
-    while ((m = deleteRe.exec(cleaned)) !== null) {
-        ops.push({ op: 'deleteRow', table: m[1], rowId: Number(m[2]) });
-    }
-    return ops;
+    return { ops, errors };
+}
+
+function parseStructuredEdits(editsString) {
+    return parseStructuredEditsDetailed(editsString).ops;
 }
 
 function applyEditsToSnapshot(snapshot, ops) {
-    if (!snapshot || !ops.length) return snapshot;
+    if (!snapshot || !Array.isArray(ops)) {
+        return { ok: false, snapshot, appliedCount: 0, changedCount: 0, repairedCount: 0, errors: ['Missing snapshot or operations.'] };
+    }
+    const working = cloneValue(snapshot);
+    const repairedCount = normalizeSnapshotRowIds(working);
+    let appliedCount = 0;
+    let changedCount = 0;
+    const errors = [];
+
     for (const op of ops) {
         const sheetKey = TABLE_TO_SHEET[op.table];
-        if (!sheetKey || !snapshot[sheetKey]) {
-            console.warn(`[ProtagonistState] tableEdit: table "${op.table}" not found`);
-            continue;
+        const allowed = TABLE_ALLOWED_OPERATIONS[op.table];
+        if (!sheetKey || !working[sheetKey] || !allowed) {
+            errors.push(`Unknown table "${op.table}".`);
+            break;
         }
-        const sheet = snapshot[sheetKey];
+        if (!allowed.includes(op.op)) {
+            errors.push(`${op.op} is not allowed for ${op.table}.`);
+            break;
+        }
+        const sheet = working[sheetKey];
         const cols = getEnglishColumns(sheet, op.table);
-        const content = Array.isArray(sheet.content) ? sheet.content : [['row_id']];
-        if (!Array.isArray(content[0])) content.unshift(['row_id']);
+        const content = sheet.content;
+        if (!Array.isArray(content) || !Array.isArray(content[0]) || !cols.length || cols[0] !== 'row_id') {
+            errors.push(`Table ${op.table} has an invalid schema or content shape.`);
+            break;
+        }
+
+        if (op.op !== 'deleteRow') {
+            if (!op.cells || typeof op.cells !== 'object' || Array.isArray(op.cells) || !Object.keys(op.cells).length) {
+                errors.push(`${op.op} for ${op.table} has no cell values.`);
+                break;
+            }
+            for (const [column, value] of Object.entries(op.cells)) {
+                if (column === 'row_id') {
+                    errors.push('row_id cannot be changed or supplied by the model.');
+                    break;
+                }
+                if (!cols.includes(column)) {
+                    errors.push(`Unknown column "${column}" in ${op.table}.`);
+                    break;
+                }
+                if (value !== null && typeof value === 'object') {
+                    errors.push(`Column "${column}" in ${op.table} must contain a scalar value.`);
+                    break;
+                }
+            }
+            if (errors.length) break;
+        }
 
         if (op.op === 'updateRow' || op.op === 'deleteRow') {
+            if (!Number.isInteger(op.rowId) || op.rowId <= 0) {
+                errors.push(`Invalid row_id ${op.rowId} for ${op.table}.`);
+                break;
+            }
             const rowIdx = content.findIndex((r, i) => i > 0 && r && r[0] == op.rowId);
             if (rowIdx === -1) {
-                console.warn(`[ProtagonistState] row_id ${op.rowId} not found in ${op.table}`);
-                continue;
+                errors.push(`row_id ${op.rowId} was not found in ${op.table}.`);
+                break;
             }
             if (op.op === 'deleteRow') {
                 content.splice(rowIdx, 1);
+                changedCount++;
             } else {
                 const newRow = [...content[rowIdx]];
                 for (const [k, v] of Object.entries(op.cells)) {
                     const ci = cols.indexOf(k);
-                    if (ci !== -1) newRow[ci] = v;
+                    newRow[ci] = v;
                 }
+                if (JSON.stringify(newRow) !== JSON.stringify(content[rowIdx])) changedCount++;
                 content[rowIdx] = newRow;
             }
         } else if (op.op === 'insertRow') {
@@ -401,28 +548,55 @@ function applyEditsToSnapshot(snapshot, ops) {
                 if (ci !== -1) newRow[ci] = v;
             }
             content.push(newRow);
+            changedCount++;
         }
         sheet.content = content;
+        appliedCount++;
     }
-    return snapshot;
+
+    if (errors.length) {
+        return { ok: false, snapshot, appliedCount: 0, changedCount: 0, repairedCount: 0, errors };
+    }
+    return { ok: true, snapshot: working, appliedCount, changedCount, repairedCount, errors: [] };
+}
+
+function processTableEditResponse(aiResponse, snapshot) {
+    const block = extractTableEditBlock(aiResponse);
+    if (block === null) {
+        return { ok: false, snapshot, appliedCount: 0, changedCount: 0, repairedCount: 0, errors: ['No valid <tableEdit> block was returned.'] };
+    }
+    if (!block.trim()) {
+        const working = cloneValue(snapshot);
+        const repairedCount = normalizeSnapshotRowIds(working);
+        return { ok: true, snapshot: working, appliedCount: 0, changedCount: 0, repairedCount, errors: [] };
+    }
+    const parsed = parseStructuredEditsDetailed(block);
+    if (parsed.errors.length) {
+        return { ok: false, snapshot, appliedCount: 0, changedCount: 0, repairedCount: 0, errors: parsed.errors };
+    }
+    if (!parsed.ops.length) {
+        return { ok: false, snapshot, appliedCount: 0, changedCount: 0, repairedCount: 0, errors: ['The non-empty <tableEdit> block contains no parseable operations.'] };
+    }
+    return applyEditsToSnapshot(snapshot, parsed.ops);
 }
 
 async function applyTableEditFromResponse(aiResponse, options = {}) {
-    const block = extractTableEditBlock(aiResponse);
-    if (!block || !block.trim()) return false;
-    const ops = parseStructuredEdits(block);
-    if (!ops.length) return false;
     const context = options.context || getContext();
     if (options.context && !isSameChatContext(options.context)) return false;
     const snapshot = options.snapshot || readDatabaseSnapshot(context.chat);
     if (!snapshot) return false;
-    applyEditsToSnapshot(snapshot, ops);
-    const saved = await writeSnapshotToChat(snapshot, options.context || null);
+    const result = processTableEditResponse(aiResponse, snapshot);
+    if (!result.ok) {
+        console.warn('[ProtagonistState] tableEdit rejected:', result.errors.join(' '));
+        return false;
+    }
+    if (!result.appliedCount && !result.repairedCount) return false;
+    const saved = await writeSnapshotToChat(result.snapshot, options.context || null, options.target || null);
     if (!saved) return false;
-    lastSnapshot = snapshot;
+    lastSnapshot = result.snapshot;
     updatePromptInjection();
     renderBottomBar();
-    toastr.success(`Applied ${ops.length} state update${ops.length === 1 ? '' : 's'}.`);
+    toastr.success(`Applied ${result.changedCount} state change${result.changedCount === 1 ? '' : 's'}.`);
     return true;
 }
 
@@ -580,7 +754,26 @@ insertRow('inventory', {"item_name":"Healing potion","quantity":"1","description
 deleteRow('quests_events', 3)
 </tableEdit>
 
-Only include changes clearly established by the supplied conversation history. Preserve all unrelated data. Do not infer or invent changes that are not in that history. If there is no state change, return exactly <tableEdit></tableEdit>.`;
+Allowed operations are strict:
+- global_state, protagonist_info, options: updateRow only; never insert or delete their single row.
+- important_characters: updateRow or insertRow; never delete.
+- protagonist_skills, inventory, quests_events: updateRow, insertRow, or deleteRow.
+- Never include row_id inside the JSON cells object.
+
+State-table content policy:
+- Memory Summary stores the detailed event history. The protagonist-state tables store only current facts and compact conclusions that remain useful in later scenes. Use conversation history and Memory Summary as evidence, but do not copy their scene-by-scene narration into table cells.
+- protagonist_info.past_experience is a compact growth and identity history. Keep major background facts, lasting identity changes, and pivotal milestones in roughly 200-300 Chinese characters or a comparable length in another language. Rewrite and compress the whole field when it materially changes; never mechanically append a new scene recap.
+- important_characters.brief_intro is an objective identity and story-role description of about 20 Chinese characters or a comparable short phrase. Do not put opinions or scene narration there.
+- important_characters.appearance contains stable, identifying physical features. Temporary clothing, poses, expressions, or momentary conditions belong only when the history clearly establishes that they will remain relevant.
+- important_characters.key_items is a concise semicolon-separated list of possessions that the character currently holds and that have continuing relevance to identity, capability, relationships, access, obligations, or future events. Keep this definition setting-neutral and omit ordinary possessions.
+- important_characters.is_absent only answers whether the character can directly participate in the protagonist's current scene.
+- important_characters.past_experience is a compact relationship history: stable background, the character's current relationship to the protagonist, major relationship transitions, and shared events that still affect future behavior. Keep it in roughly 80-160 Chinese characters or a comparable length in another language.
+- For important_characters.past_experience, retain durable changes such as hostility becoming cooperation, trust gained or lost, betrayal and reconciliation, consequential promises, secrets, agreements, or relationship confirmation. Remove routine dialogue, action-by-action combat, travel paths, temporary emotions, ordinary interactions, and details already preserved by Memory Summary.
+- When an important character materially changes this turn, rewrite and compress the entire past_experience field into "stable background -> major relationship transition -> current relationship or stance" as applicable. Do not append a chronological scene log. If the character's identity, relationship, stance, or lasting condition did not materially change, do not update that row merely to restyle or shorten it.
+- protagonist_skills, inventory, and quests_events contain current effective facts only. Do not append acquisition sequences, scene narration, or obsolete historical states to their descriptive fields.
+- All length targets above are soft guidance. Preserve essential facts and never truncate a value solely to hit a number.
+
+Only include changes clearly established by the supplied conversation history. Preserve all unrelated data. Do not infer or invent changes that are not in that history. Vague phrases such as "at dusk", "later", or "after a while" do not justify inventing an exact timestamp or elapsed duration. Update cur_time, prev_scene_time, or elapsed_time only when the history states an exact time or an explicit duration that can be calculated from the current state. A clearly established location transition may update current_location by itself. If there is no state change, return exactly <tableEdit></tableEdit>.`;
 }
 
 function getStateUpdateTarget(context, messageId = null) {
@@ -724,16 +917,22 @@ async function updateStateForMessage(messageId = null, { force = false, quiet = 
             throw new Error('The state update API returned no valid tableEdit block.');
         }
 
-        const applied = await applyTableEditFromResponse(responseText, { context, snapshot });
-        if (!isTargetStillCurrent(context, target)) return false;
-        target.assistantMessage.extra = target.assistantMessage.extra || {};
-        target.assistantMessage.extra.protagonist_state_updated = Date.now();
-        if (!applied) {
-            await context.saveChat();
-            if (!quiet) toastr.info('No database changes were returned for this turn.');
-        }
-        else {
-            await context.saveChat();
+        const result = processTableEditResponse(responseText, snapshot);
+        if (!result.ok) throw new Error(result.errors.join(' '));
+        if (!isTargetStillCurrent(context, target, true)) return false;
+        const saved = await writeSnapshotToChat(result.snapshot, context, target, Date.now());
+        if (!saved) throw new Error('The protagonist-state snapshot could not be saved to its target message.');
+        lastSnapshot = result.snapshot;
+        updatePromptInjection();
+        refreshStateEditors(result.snapshot);
+        if (!quiet) {
+            if (result.changedCount > 0) {
+                toastr.success(`Applied ${result.changedCount} state change${result.changedCount === 1 ? '' : 's'}.`);
+            } else if (result.repairedCount > 0) {
+                toastr.success(`Repaired ${result.repairedCount} state row ID${result.repairedCount === 1 ? '' : 's'}.`);
+            } else {
+                toastr.info('No database changes were returned for this turn.');
+            }
         }
         return true;
     } catch (error) {
@@ -1098,17 +1297,25 @@ function bindPopupEvents() {
 }
 
 let dirty = false;
+async function persistManualSnapshot() {
+    if (!lastSnapshot) return false;
+    const saved = await writeSnapshotToChat(lastSnapshot);
+    if (!saved) {
+        lastSnapshot = readDatabaseSnapshot(getContext().chat);
+        refreshStateEditors(lastSnapshot);
+        return false;
+    }
+    updatePromptInjection();
+    renderBottomBar(lastSnapshot);
+    return true;
+}
 const flushEditsDebounced = debounce(async () => {
     if (!dirty) return;
     dirty = false;
-    if (lastSnapshot) {
-        await writeSnapshotToChat(lastSnapshot);
-        updatePromptInjection();
-        renderBottomBar();
-    }
+    await persistManualSnapshot();
 }, 800);
 function markDirty() { dirty = true; flushEditsDebounced(); }
-async function flushEdits() { if (dirty) { dirty = false; if (lastSnapshot) await writeSnapshotToChat(lastSnapshot); } }
+async function flushEdits() { if (dirty) { dirty = false; await persistManualSnapshot(); } }
 
 // ── Events ────────────────────────────────────────────────────────────
 function onChatChanged() {
