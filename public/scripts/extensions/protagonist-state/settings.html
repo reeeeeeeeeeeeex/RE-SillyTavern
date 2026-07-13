@@ -52,23 +52,30 @@
                     </div>
                 </div>
 
-                <div class="flex-container flexFlowRow alignItemsCenter gap10px">
-                    <label for="protagonist_state_position">注入位置 / Position:</label>
-                    <select id="protagonist_state_position" class="text_pole">
-                        <option value="1">In-chat @ Depth</option>
-                        <option value="2">Before Main Prompt</option>
-                        <option value="0">After Main Prompt</option>
-                        <option value="-1">None</option>
-                    </select>
-                    <label for="protagonist_state_depth">深度 / Depth:</label>
-                    <input id="protagonist_state_depth" class="text_pole widthUnset" type="number" min="0" max="9999" />
-                    <label for="protagonist_state_role">角色 / Role:</label>
-                    <select id="protagonist_state_role" class="text_pole widthNatural">
-                        <option value="0">System</option>
-                        <option value="1">User</option>
-                        <option value="2">Assistant</option>
-                    </select>
+                <div class="protagonist_state_injection_grid">
+                    <label class="protagonist_state_injection_field" for="protagonist_state_position">
+                        <span>注入位置 / Position</span>
+                        <select id="protagonist_state_position" class="text_pole">
+                            <option value="1">聊天内 @ 深度 / In-chat</option>
+                            <option value="2">主提示词之前 / Before main prompt</option>
+                            <option value="0">主提示词之后 / After main prompt</option>
+                            <option value="-1">不注入 / None</option>
+                        </select>
+                    </label>
+                    <label class="protagonist_state_injection_field" for="protagonist_state_depth">
+                        <span>深度 / Depth</span>
+                        <input id="protagonist_state_depth" class="text_pole" type="number" min="0" max="9999" />
+                    </label>
+                    <label class="protagonist_state_injection_field" for="protagonist_state_role">
+                        <span>角色 / Role</span>
+                        <select id="protagonist_state_role" class="text_pole">
+                            <option value="0">System（系统）</option>
+                            <option value="1">User（用户）</option>
+                            <option value="2">Assistant（助手）</option>
+                        </select>
+                    </label>
                 </div>
+                <p class="protagonist_state_injection_help">DeepSeek 聊天末尾动态注入建议：聊天内 @ 深度 0 + Assistant。</p>
 
             </div>
 

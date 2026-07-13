@@ -81,6 +81,7 @@ import { ToolManager } from './tool-calling.js';
 import { accountStorage } from './util/AccountStorage.js';
 import { COMETAPI_IGNORE_PATTERNS, IGNORE_SYMBOL, MEDIA_DISPLAY, MEDIA_TYPE } from './constants.js';
 import { syncNanoGptProvidersForModel, syncOpenRouterProvidersForModel, updateNanoGptProvidersWarning, updateOpenRouterProvidersWarning } from './textgen-models.js';
+import { formatLatestUserInputAnchor, shouldAddLatestUserInputAnchor, shouldDuplicateLatestUserInputAnchor, wrapLatestUserMessageWithAnchor } from './latest-user-input-anchor.js';
 
 export {
     openai_messages_count,
@@ -1175,7 +1176,7 @@ export function getPromptRole(role) {
  * @param {object[]} options.messageExamples - Array containing all message examples.
  * @returns {Promise<void>}
  */
-async function populateChatCompletion(prompts, chatCompletion, { bias, quietPrompt, quietImage, type, cyclePrompt, messages, messageExamples }) {
+async function populateChatCompletion(prompts, chatCompletion, { bias, quietPrompt, quietImage, type, cyclePrompt, latestUserInput, messages, messageExamples }) {
     // Helper function for preparing a prompt, that already exists within the prompt collection, for completion
     const addToChatCompletion = async (source, target = null) => {
         // We need the prompts array to determine a position for the source.
@@ -1225,9 +1226,35 @@ async function populateChatCompletion(prompts, chatCompletion, { bias, quietProm
         if (isImageInliningSupported() && quietImage) {
             await quietPromptMessage.addImage(quietImage);
         }
-
-        controlPrompts.add(quietPromptMessage);
     }
+
+    if (shouldAddLatestUserInputAnchor({ source: oai_settings.chat_completion_source, type, latestUserInput })) {
+        const anchorMessage = await Message.createAsync('user', formatLatestUserInputAnchor(latestUserInput), 'latestUserInputAnchor');
+        const mandatoryControls = [controlPrompts, anchorMessage];
+        if (quietPromptMessage?.content) mandatoryControls.push(quietPromptMessage);
+        // setOpenAIMessages keeps the newest chat turn at index 0 until
+        // populationInjectionPrompts reverses the array for final assembly.
+        const latestUserMessage = messages.find(message => message?.role === 'user' && typeof message.content === 'string' && message.content.trim());
+        const hasLatestUserMedia = Array.isArray(latestUserMessage?.media) && latestUserMessage.media.length > 0;
+        if (latestUserMessage && !hasLatestUserMedia) {
+            mandatoryControls.push(await Message.createAsync('user', latestUserMessage.content, 'latestUserInputSourceReservation'));
+        }
+        const canFit = chatCompletion.canAffordAll(mandatoryControls);
+        if (shouldDuplicateLatestUserInputAnchor({ hasMedia: hasLatestUserMedia, canFit })) {
+            // This collection is appended after chat history, including every
+            // depth-positioned Memory, state, Author's Note, and World Info item.
+            controlPrompts.add(anchorMessage);
+        } else {
+            // Do not fail a generation or displace media solely because
+            // duplicating the current turn cannot fit. Label the original
+            // transient User message instead.
+            wrapLatestUserMessageWithAnchor(messages);
+        }
+    }
+
+    // Preserve SillyTavern's invariant that a quiet instruction, when present,
+    // remains the final control prompt.
+    if (quietPromptMessage?.content) controlPrompts.add(quietPromptMessage);
 
     chatCompletion.reserveBudget(controlPrompts);
 
@@ -1528,6 +1555,7 @@ async function preparePromptsForChatCompletion({ scenario, charPersonality, name
  * @param {string} content.systemPromptOverride - The system prompt override.
  * @param {string} content.jailbreakPromptOverride - The jailbreak prompt override.
  * @param {object} content.extensionPrompts - An array of additional prompts.
+ * @param {string} content.latestUserInput - Raw text of the latest real User message.
  * @param {object[]} content.messages - An array of messages to be used as chat history.
  * @param {string[]} content.messageExamples - An array of messages to be used as dialogue examples.
  * @param dryRun - Whether this is a live call or not.
@@ -1548,6 +1576,7 @@ export async function prepareOpenAIMessages({
     cyclePrompt,
     systemPromptOverride,
     jailbreakPromptOverride,
+    latestUserInput,
     messages,
     messageExamples,
 }, dryRun) {
@@ -1578,7 +1607,7 @@ export async function prepareOpenAIMessages({
         });
 
         // Fill the chat completion with as much context as the budget allows
-        await populateChatCompletion(prompts, chatCompletion, { bias, quietPrompt, quietImage, type, cyclePrompt, messages, messageExamples });
+        await populateChatCompletion(prompts, chatCompletion, { bias, quietPrompt, quietImage, type, cyclePrompt, latestUserInput, messages, messageExamples });
     } catch (error) {
         if (error instanceof TokenBudgetExceededError) {
             toastr.error(t`Mandatory prompts exceed the context size.`);

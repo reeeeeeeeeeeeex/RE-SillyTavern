@@ -51,9 +51,10 @@ Jest test files live in `tests/` and cover: `util.test.js`, `prompt-converters.t
 ```bash
 node test-protagonist-state.mjs   # Protagonist State: DDL parsing, delta reconstruct, snapshot read
 node test-memory.mjs              # Memory: timeline normalization and cumulative batches
+node test-latest-user-input-anchor.mjs # DeepSeek latest User anchor and SEMI_TOOLS ordering
 ```
 
-The harnesses strip ESM imports, mock browser globals, and exercise pure logic functions via `new Function()` eval.
+The extension harnesses strip ESM imports, mock browser globals, and exercise pure logic functions via `new Function()` eval. The latest-User anchor harness imports its pure frontend helper directly and verifies the real backend `SEMI_TOOLS` converter.
 
 ## Architecture Overview
 
@@ -145,6 +146,7 @@ This fork optimizes for DeepSeek/Claude prefix-based caching:
 - Memory role defaults and is one-time migrated to `ASSISTANT`, because a DeepSeek mid-chat System injection is recast as User. This preserves a separate dynamic role without moving Memory ahead of the cacheable history prefix.
 - **DeepSeek role limitation:** `sendDeepSeekRequest()` always applies `PROMPT_PROCESSING_TYPE.SEMI_TOOLS`. Its strict message merger converts every `system` message except the first one into `user`. Therefore an `IN_CHAT` prompt configured as System at any chat depth reaches the final DeepSeek payload as `user`; Assistant remains Assistant. This is backend behavior, not a stale extension setting.
 - **Custom prompt post-processing:** For the native DeepSeek source, keep `custom_prompt_post_processing` at `None`. DeepSeek already performs its own `SEMI_TOOLS` compatibility pass. The UI's Strict variants add a second role-reordering pass, including User placeholders, which can merge dynamic World Info/Summary content into User context. “With Tools” only preserves tool messages during that optional pass; it does not enable or disable function calling.
+- **Latest User input anchor:** Native DeepSeek `normal`, `swipe`, and `regenerate` requests append a transient final User message that repeats only the latest raw user-authored text as `以下是用户本轮输入：\n“...”`. It is added after all depth injections and participates in token budgeting only when the original User text can fit alongside it. Messages with media are never duplicated; insufficient-budget or media turns label only the existing transient User message. The stored chat, attachment contents, quiet/background requests, continuation, impersonation, and other API sources are unchanged.
 
 ## Custom Extensions and Behaviors
 
@@ -180,7 +182,7 @@ Location: `public/scripts/extensions/protagonist-state/`
 - Parses `<tableEdit>` blocks from its dedicated update API (structured `updateRow/insertRow/deleteRow` commands, not SQL) and can update manually or at the configured AI-response interval.
 - **Automatic frequency:** `updateInterval` counts assistant replies after the latest successful `protagonist_state_updated` marker. Manual updates reset the same marker; failed or stale requests leave it unchanged so the next reply can retry.
 - **Async safety:** A state response is written only when the original chat and target assistant message still exist unchanged; results from a switched, edited, deleted, or regenerated target are discarded.
-- UI: a large draggable two-column popup with a sidebar and continuous editable record cards for all active tables + Memory. A collapsible bottom bar (`#protagonist_state_bottom_bar`) shows selected-table summaries.
+- UI: a large freely draggable two-column popup with a sidebar and continuous editable record cards for all active tables + Memory. The settings drawer uses a dedicated Position/Depth/Role grid so global Flex styles cannot collapse the selects. Popup dragging is intentionally unconstrained and does not recalculate or clamp its position against the viewport. A collapsible bottom bar (`#protagonist_state_bottom_bar`) shows selected-table summaries.
 - Formats seven active tables (`global_state`, `protagonist_info`, `important_characters`, `protagonist_skills`, `inventory`, `quests_events`, `options`). Legacy `sheet_3NoMc1wI` chronicle data is deliberately hidden and excluded from prompt/API updates, but preserved unchanged whenever another table is checkpoint-saved.
 - The source data stores each sheet's `content` as a 2D array `[headerRow, dataRow, ...]` with **Chinese** headers. The extension parses each sheet's `sourceData.ddl` to recover English column names (`parseDDLColumns`); a hardcoded `TABLE_COLUMNS` fallback covers default tables if the DDL is missing.
 - Injects via `setExtensionPrompt()` at `IN_CHAT @ Depth 0` / `SYSTEM` by default. Every selected table is injected in full; no injection-time ellipsis or per-table word cap is applied. The bottom-bar's collapsed preview remains compact only for display.

@@ -73,6 +73,7 @@ import {
     getGroupCharacterCardsLazy,
     getGroupDepthPrompts,
 } from './scripts/group-chats.js';
+import { getLatestRawUserInput } from './scripts/latest-user-input-anchor.js';
 
 import {
     collapseNewlines,
@@ -4438,6 +4439,9 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
     if (type === 'swipe') {
         coreChat.pop();
     }
+    // Capture only the user's stored text before regexes, attachment expansion,
+    // interceptors, and depth injections alter the transient prompt messages.
+    const latestUserInput = getLatestRawUserInput(coreChat);
 
     coreChat = await Promise.all(coreChat.map(async (/** @type {ChatMessage} */ chatItem, index) => {
         let message = chatItem.mes;
@@ -5238,6 +5242,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 cyclePrompt: cyclePrompt,
                 systemPromptOverride: system,
                 jailbreakPromptOverride: jailbreak,
+                latestUserInput: latestUserInput,
                 messages: oaiMessages,
                 messageExamples: oaiMessageExamples,
             }, dryRun);
