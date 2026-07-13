@@ -1228,7 +1228,7 @@ async function populateChatCompletion(prompts, chatCompletion, { bias, quietProm
         }
     }
 
-    if (shouldAddLatestUserInputAnchor({ source: oai_settings.chat_completion_source, type, latestUserInput })) {
+    if (shouldAddLatestUserInputAnchor({ type, latestUserInput })) {
         const anchorMessage = await Message.createAsync('user', formatLatestUserInputAnchor(latestUserInput), 'latestUserInputAnchor');
         const mandatoryControls = [controlPrompts, anchorMessage];
         if (quietPromptMessage?.content) mandatoryControls.push(quietPromptMessage);

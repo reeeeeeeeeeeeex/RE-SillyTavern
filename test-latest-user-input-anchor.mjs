@@ -45,15 +45,16 @@ test('formats multiline input without altering its text', () => {
     );
 });
 
-test('enables only native DeepSeek roleplay generations', () => {
-    for (const type of ['normal', 'swipe', 'regenerate']) {
-        assert.strictEqual(shouldAddLatestUserInputAnchor({ source: 'deepseek', type, latestUserInput: 'go' }), true);
+test('enables foreground roleplay generations for every Chat Completion source', () => {
+    for (const source of ['deepseek', 'openai', 'claude', 'makersuite', 'mistralai']) {
+        for (const type of ['normal', 'swipe', 'regenerate']) {
+            assert.strictEqual(shouldAddLatestUserInputAnchor({ source, type, latestUserInput: 'go' }), true);
+        }
     }
     for (const type of ['quiet', 'continue', 'impersonate']) {
         assert.strictEqual(shouldAddLatestUserInputAnchor({ source: 'deepseek', type, latestUserInput: 'go' }), false);
     }
-    assert.strictEqual(shouldAddLatestUserInputAnchor({ source: 'openai', type: 'normal', latestUserInput: 'go' }), false);
-    assert.strictEqual(shouldAddLatestUserInputAnchor({ source: 'deepseek', type: 'normal', latestUserInput: '   ' }), false);
+    assert.strictEqual(shouldAddLatestUserInputAnchor({ source: 'openai', type: 'normal', latestUserInput: '   ' }), false);
 });
 
 test('keeps media on the original User message and requires source-plus-anchor budget', () => {

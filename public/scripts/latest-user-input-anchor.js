@@ -27,16 +27,16 @@ export function formatLatestUserInputAnchor(input) {
 }
 
 /**
- * Restrict the anchor to native DeepSeek roleplay generations.
+ * Restrict the anchor to foreground roleplay generations. This helper is used
+ * by the Chat Completion prompt builder, so every supported chat provider gets
+ * the same final User anchor while background extension requests remain out.
  * @param {object} options Anchor eligibility inputs.
- * @param {string} options.source Chat completion source.
  * @param {string} options.type Generation type.
  * @param {string} options.latestUserInput Raw user-authored text.
  * @returns {boolean}
  */
-export function shouldAddLatestUserInputAnchor({ source, type, latestUserInput }) {
-    return source === 'deepseek'
-        && ELIGIBLE_GENERATION_TYPES.has(type)
+export function shouldAddLatestUserInputAnchor({ type, latestUserInput }) {
+    return ELIGIBLE_GENERATION_TYPES.has(type)
         && typeof latestUserInput === 'string'
         && Boolean(latestUserInput.trim());
 }

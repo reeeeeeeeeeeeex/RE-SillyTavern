@@ -51,7 +51,7 @@ Jest test files live in `tests/` and cover: `util.test.js`, `prompt-converters.t
 ```bash
 node test-protagonist-state.mjs   # Protagonist State: DDL parsing, delta reconstruct, snapshot read
 node test-memory.mjs              # Memory: timeline normalization and cumulative batches
-node test-latest-user-input-anchor.mjs # DeepSeek latest User anchor and SEMI_TOOLS ordering
+node test-latest-user-input-anchor.mjs # Chat Completion latest User anchor and SEMI_TOOLS ordering
 ```
 
 The extension harnesses strip ESM imports, mock browser globals, and exercise pure logic functions via `new Function()` eval. The latest-User anchor harness imports its pure frontend helper directly and verifies the real backend `SEMI_TOOLS` converter.
@@ -146,7 +146,7 @@ This fork optimizes for DeepSeek/Claude prefix-based caching:
 - Memory role defaults and is one-time migrated to `ASSISTANT`, because a DeepSeek mid-chat System injection is recast as User. This preserves a separate dynamic role without moving Memory ahead of the cacheable history prefix.
 - **DeepSeek role limitation:** `sendDeepSeekRequest()` always applies `PROMPT_PROCESSING_TYPE.SEMI_TOOLS`. Its strict message merger converts every `system` message except the first one into `user`. Therefore an `IN_CHAT` prompt configured as System at any chat depth reaches the final DeepSeek payload as `user`; Assistant remains Assistant. This is backend behavior, not a stale extension setting.
 - **Custom prompt post-processing:** For the native DeepSeek source, keep `custom_prompt_post_processing` at `None`. DeepSeek already performs its own `SEMI_TOOLS` compatibility pass. The UI's Strict variants add a second role-reordering pass, including User placeholders, which can merge dynamic World Info/Summary content into User context. “With Tools” only preserves tool messages during that optional pass; it does not enable or disable function calling.
-- **Latest User input anchor:** Native DeepSeek `normal`, `swipe`, and `regenerate` requests append a transient final User message that repeats only the latest raw user-authored text as `以下是用户本轮输入：\n“...”`. It is added after all depth injections and participates in token budgeting only when the original User text can fit alongside it. Messages with media are never duplicated; insufficient-budget or media turns label only the existing transient User message. The stored chat, attachment contents, quiet/background requests, continuation, impersonation, and other API sources are unchanged.
+- **Latest User input anchor:** All Chat Completion `normal`, `swipe`, and `regenerate` requests append a transient final User message that repeats only the latest raw user-authored text as `以下是用户本轮输入：\n“...”`. It is added after all depth injections and participates in token budgeting only when the original User text can fit alongside it. Messages with media are never duplicated; insufficient-budget or media turns label only the existing transient User message. The stored chat, attachment contents, quiet/background requests, continuation, impersonation, extension background APIs, and Text Completion APIs are unchanged.
 
 ## Custom Extensions and Behaviors
 
