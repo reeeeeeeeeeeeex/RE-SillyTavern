@@ -198,8 +198,9 @@
 #protagonist_state_popup {
     position: fixed;
     top: 6vh;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: min(1280px, 96vw);
     height: min(88vh, 900px);
     max-height: 88vh;

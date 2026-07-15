@@ -1336,25 +1336,51 @@ async function openStatePopup() {
     const snapshot = getFreshSnapshot();
     activePopupTab = 'global_state';
     renderPopupBody(snapshot);
+    resetPopupPosition($popup);
     $popup.show();
 }
 
+function resetPopupPosition($popup) {
+    $popup.css({
+        left: '',
+        right: '',
+        top: '',
+        marginLeft: '',
+        marginRight: '',
+        transform: '',
+    });
+}
+
 function makeDraggable($el, $handle) {
-    let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+    let dragging = false, dragStarted = false, startX = 0, startY = 0, origX = 0, origY = 0;
     $handle.on('mousedown.ps_drag', function (e) {
-        if ($(e.target).closest('.ps_popup_close').length) return;
+        if (e.button !== 0 || $(e.target).closest('button, .ps_popup_close').length) return;
         dragging = true;
+        dragStarted = false;
         const rect = $el[0].getBoundingClientRect();
         origX = rect.left; origY = rect.top;
         startX = e.clientX; startY = e.clientY;
-        $el.css({ left: origX + 'px', top: origY + 'px', transform: 'none' });
         e.preventDefault();
     });
     $(document).on('mousemove.ps_drag', function (e) {
         if (!dragging) return;
-        $el.css({ left: (origX + e.clientX - startX) + 'px', top: (origY + e.clientY - startY) + 'px' });
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        if (!dragStarted && deltaX === 0 && deltaY === 0) return;
+        dragStarted = true;
+        $el.css({
+            left: (origX + deltaX) + 'px',
+            right: 'auto',
+            top: (origY + deltaY) + 'px',
+            marginLeft: 0,
+            marginRight: 0,
+            transform: 'none',
+        });
     });
-    $(document).on('mouseup.ps_drag', function () { dragging = false; });
+    $(document).on('mouseup.ps_drag', function () {
+        dragging = false;
+        dragStarted = false;
+    });
 }
 
 function setActivePopupSection(section) {

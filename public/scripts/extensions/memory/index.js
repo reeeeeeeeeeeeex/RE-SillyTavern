@@ -1341,8 +1341,20 @@ function openMemoryManager(section = 'summary') {
     const $popup = $('#memory_manager_popup');
     if (!$popup.length) return;
     loadSettings();
+    resetMemoryManagerPosition($popup);
     $popup.addClass('visible').attr('aria-hidden', 'false');
     setTimeout(() => scrollMemoryManagerTo(section, false), 0);
+}
+
+function resetMemoryManagerPosition($popup) {
+    $popup.css({
+        left: '',
+        right: '',
+        top: '',
+        marginLeft: '',
+        marginRight: '',
+        transform: '',
+    });
 }
 
 function setupMemoryManagerEvents() {
@@ -1361,26 +1373,41 @@ function setupMemoryManagerEvents() {
     });
 
     let dragging = false;
+    let dragStarted = false;
     let startX = 0;
     let startY = 0;
     let originX = 0;
     let originY = 0;
     $('#memory_manager_popup .memory_manager_header').off('mousedown.memory-manager').on('mousedown.memory-manager', function (event) {
-        if ($(event.target).closest('button').length) return;
+        if (event.button !== 0 || $(event.target).closest('button').length) return;
         const $popup = $('#memory_manager_popup');
         const rect = $popup[0].getBoundingClientRect();
         dragging = true;
+        dragStarted = false;
         startX = event.clientX;
         startY = event.clientY;
         originX = rect.left;
         originY = rect.top;
-        $popup.css({ left: `${originX}px`, top: `${originY}px`, transform: 'none' });
         event.preventDefault();
     });
     $(document).off('mousemove.memory-manager mouseup.memory-manager').on('mousemove.memory-manager', function (event) {
         if (!dragging) return;
-        $('#memory_manager_popup').css({ left: `${originX + event.clientX - startX}px`, top: `${originY + event.clientY - startY}px` });
-    }).on('mouseup.memory-manager', function () { dragging = false; });
+        const deltaX = event.clientX - startX;
+        const deltaY = event.clientY - startY;
+        if (!dragStarted && deltaX === 0 && deltaY === 0) return;
+        dragStarted = true;
+        $('#memory_manager_popup').css({
+            left: `${originX + deltaX}px`,
+            right: 'auto',
+            top: `${originY + deltaY}px`,
+            marginLeft: 0,
+            marginRight: 0,
+            transform: 'none',
+        });
+    }).on('mouseup.memory-manager', function () {
+        dragging = false;
+        dragStarted = false;
+    });
 }
 
 function setupListeners() {
