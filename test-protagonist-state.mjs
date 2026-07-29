@@ -44,6 +44,7 @@ return {
   readDatabaseSnapshot, formatTable, getEnglishColumns, buildCurrentStateText, SHEET_MAP,
   extractTableEditBlock, parseStructuredEdits, applyEditsToSnapshot, processTableEditResponse,
   normalizeSnapshotRowIds, normalizeKnownSheetLayouts, mergePastExperienceValues,
+  createInitialStateSnapshot, prepareStateUpdateSnapshot,
   buildStateUpdateSystemPrompt, writeSnapshotToChat, isTargetStillCurrent,
   selectUpdateHistoryMessages, buildStateUpdateRequestMessages, getSelectedTableKeys,
   renderEditableStateRecords, ensureSheetContent, renderPopupContent, getTimelineContextForMemory,
@@ -425,6 +426,55 @@ test('formats every quest field for lossless selected-table injection', () => {
     }
 });
 
+console.log('=== new-chat snapshot initialization ===');
+test('creates all seven canonical sheets without copying another chat', () => {
+    const snapshot = mod.createInitialStateSnapshot();
+    assert.deepStrictEqual(Object.keys(snapshot), Object.keys(mod.SHEET_MAP));
+    for (const [sheetKey, info] of Object.entries(mod.SHEET_MAP)) {
+        const sheet = snapshot[sheetKey];
+        assert.strictEqual(sheet.uid, sheetKey);
+        assert.deepStrictEqual(mod.parseDDLColumns(sheet.sourceData.ddl), mod.getEnglishColumns(sheet, info.key));
+        assert.ok(Array.isArray(sheet.content[0]));
+    }
+    assert.strictEqual(snapshot.sheet_dCudvUnH.content[1][0], 1);
+    assert.strictEqual(snapshot.sheet_DpKcVGqg.content[1][0], 1);
+    assert.strictEqual(snapshot.sheet_OptionsNew.content[1][0], 1);
+    assert.strictEqual(snapshot.sheet_NcBlYRH5.content.length, 1);
+    assert.strictEqual(snapshot.sheet_lEARaBa8.content.length, 1);
+});
+
+test('returns a fresh template only when the chat has no persisted snapshot', () => {
+    const first = mod.prepareStateUpdateSnapshot([]);
+    const second = mod.prepareStateUpdateSnapshot([]);
+    assert.strictEqual(first.initializing, true);
+    first.snapshot.sheet_dCudvUnH.content[1][1] = 'Changed locally';
+    assert.strictEqual(second.snapshot.sheet_dCudvUnH.content[1][1], '');
+
+    const persisted = {
+        sheet_dCudvUnH: { content: [['row_id'], [1]] },
+    };
+    const prepared = mod.prepareStateUpdateSnapshot([{
+        is_user: false,
+        TavernDB_ACU_IsolatedData: { '': { independentData: persisted } },
+    }]);
+    assert.strictEqual(prepared.initializing, false);
+    assert.deepStrictEqual(prepared.snapshot.sheet_dCudvUnH.content, persisted.sheet_dCudvUnH.content);
+});
+
+test('the initial template accepts singleton updates and multi-row inserts', () => {
+    const snapshot = mod.createInitialStateSnapshot();
+    const result = mod.processTableEditResponse(`<tableEdit>
+updateRow('global_state', 1, {"current_location":"Market"})
+updateRow('protagonist_info', 1, {"char_name":"Alex","gender_age":"Unknown"})
+insertRow('important_characters', {"name":"Morgan","gender_age":"Unknown","is_absent":"否"})
+</tableEdit>`, snapshot);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.changedCount, 3);
+    assert.strictEqual(result.snapshot.sheet_dCudvUnH.content[1][1], 'Market');
+    assert.strictEqual(result.snapshot.sheet_DpKcVGqg.content[1][1], 'Alex');
+    assert.strictEqual(result.snapshot.sheet_NcBlYRH5.content[1][1], 'Morgan');
+});
+
 console.log('=== tableEdit updater ===');
 test('parses a strict tableEdit block returned by the update API', () => {
     const block = mod.extractTableEditBlock(`Before\n<tableEdit>
@@ -475,6 +525,11 @@ test('state update prompt specifies tableEdit-only output and schemas', () => {
     assert.ok(prompt.includes('Keep this definition setting-neutral'));
     assert.ok(prompt.includes('All length targets above are soft guidance'));
     assert.ok(!/魂骨|soul\s*bone/i.test(prompt));
+    assert.ok(!prompt.includes('initializes the first protagonist-state snapshot'));
+    const initializationPrompt = mod.buildStateUpdateSystemPrompt(true);
+    assert.ok(initializationPrompt.includes('initializes the first protagonist-state snapshot'));
+    assert.ok(initializationPrompt.includes('singleton rows already exist as row_id 1'));
+    assert.ok(initializationPrompt.includes('never invent initialization data'));
 });
 
 test('repairs missing, invalid, and duplicate active row IDs without touching unrelated sheets', () => {

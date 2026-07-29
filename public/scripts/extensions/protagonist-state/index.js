@@ -55,6 +55,98 @@ const TABLE_COLUMNS = {
 const IMPORTANT_CHARACTER_HEADERS = ['row_id', '姓名', '性别/年龄', '一句话介绍', '外貌特征', '持有的重要物品', '是否离场', '过往经历'];
 const LEGACY_IMPORTANT_CHARACTER_HEADERS = ['姓名', '性别/年龄', '外貌特征', '持有的重要物品', '是否离场', '过往经历'];
 
+const INITIAL_SHEET_DEFINITIONS = {
+    global_state: {
+        name: '全局数据表',
+        headers: ['row_id', '主角当前所在地点', '当前时间', '上轮场景时间', '经过的时间'],
+        singleton: true,
+        ddl: `CREATE TABLE global_state ( -- 全局数据表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  current_location TEXT NOT NULL, -- 主角当前所在地点
+  cur_time TEXT NOT NULL, -- 当前时间
+  prev_scene_time TEXT, -- 上轮场景时间
+  elapsed_time TEXT -- 经过的时间
+);`,
+    },
+    protagonist_info: {
+        name: '主角信息表',
+        headers: ['row_id', '人物名称', '性别/年龄', '外貌特征', '职业/身份', '过往经历', '性格特点'],
+        singleton: true,
+        ddl: `CREATE TABLE protagonist_info ( -- 主角信息表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  char_name TEXT NOT NULL, -- 人物名称
+  gender_age TEXT NOT NULL, -- 性别/年龄
+  appearance TEXT, -- 外貌特征
+  occupation TEXT, -- 职业/身份
+  past_experience TEXT, -- 过往经历
+  personality TEXT -- 性格特点
+);`,
+    },
+    important_characters: {
+        name: '重要角色表',
+        headers: IMPORTANT_CHARACTER_HEADERS,
+        ddl: `CREATE TABLE important_characters ( -- 重要角色表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  name TEXT NOT NULL UNIQUE, -- 姓名
+  gender_age TEXT NOT NULL, -- 性别/年龄
+  brief_intro TEXT, -- 一句话介绍
+  appearance TEXT, -- 外貌特征
+  key_items TEXT, -- 持有的重要物品
+  is_absent TEXT NOT NULL DEFAULT '否', -- 是否离场
+  past_experience TEXT -- 过往经历
+);`,
+    },
+    protagonist_skills: {
+        name: '主角技能表',
+        headers: ['row_id', '技能名称', '技能类型', '等级/阶段', '效果描述'],
+        ddl: `CREATE TABLE protagonist_skills ( -- 主角技能表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  skill_name TEXT NOT NULL UNIQUE, -- 技能名称
+  skill_type TEXT NOT NULL, -- 技能类型
+  skill_level TEXT, -- 等级/阶段
+  effect_desc TEXT -- 效果描述
+);`,
+    },
+    inventory: {
+        name: '背包物品表',
+        headers: ['row_id', '物品名称', '数量', '描述/效果', '类别'],
+        ddl: `CREATE TABLE inventory ( -- 背包物品表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  item_name TEXT NOT NULL UNIQUE, -- 物品名称
+  quantity INTEGER NOT NULL DEFAULT 1, -- 数量
+  description TEXT, -- 描述/效果
+  category TEXT NOT NULL -- 类别
+);`,
+    },
+    quests_events: {
+        name: '任务与事件表',
+        headers: ['row_id', '任务名称', '任务类型', '发布者', '详细描述', '当前进度', '任务时限', '奖励', '惩罚'],
+        ddl: `CREATE TABLE quests_events ( -- 任务与事件表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  quest_name TEXT NOT NULL UNIQUE, -- 任务名称
+  quest_type TEXT NOT NULL, -- 任务类型
+  issuer TEXT, -- 发布者
+  detail_desc TEXT, -- 详细描述
+  current_progress TEXT, -- 当前进度
+  time_limit TEXT, -- 任务时限
+  reward TEXT, -- 奖励
+  penalty TEXT -- 惩罚
+);`,
+    },
+    options: {
+        name: '选项表',
+        headers: ['row_id', '选项一', '选项二', '选项三', '选项四'],
+        singleton: true,
+        ddl: `CREATE TABLE options ( -- 选项表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  option_1 TEXT NOT NULL, -- 选项一
+  option_2 TEXT NOT NULL, -- 选项二
+  option_3 TEXT NOT NULL, -- 选项三
+  option_4 TEXT NOT NULL -- 选项四
+);`,
+    },
+};
+
 const TABLE_ALLOWED_OPERATIONS = {
     global_state: ['updateRow'],
     protagonist_info: ['updateRow'],
@@ -317,6 +409,39 @@ function normalizeSnapshotRowIds(snapshot) {
         }
     }
     return repairedCount;
+}
+
+function createInitialStateSnapshot() {
+    const snapshot = {};
+    let orderNo = 0;
+    for (const [sheetKey, info] of Object.entries(SHEET_MAP)) {
+        const definition = INITIAL_SHEET_DEFINITIONS[info.key];
+        const headers = [...definition.headers];
+        const content = [headers];
+        if (definition.singleton) content.push([1, ...new Array(headers.length - 1).fill('')]);
+        snapshot[sheetKey] = {
+            uid: sheetKey,
+            name: definition.name,
+            sourceData: { ddl: definition.ddl },
+            content,
+            updateConfig: {
+                uiSentinel: -1,
+                contextDepth: -1,
+                updateFrequency: -1,
+                batchSize: -1,
+                skipFloors: -1,
+            },
+            orderNo: orderNo++,
+        };
+    }
+    return snapshot;
+}
+
+function prepareStateUpdateSnapshot(chat) {
+    const existing = readDatabaseSnapshot(chat);
+    return existing
+        ? { snapshot: existing, initializing: false }
+        : { snapshot: createInitialStateSnapshot(), initializing: true };
 }
 
 function detectIsolationKey(chat) {
@@ -881,7 +1006,10 @@ function buildStructuredStateForUpdate(snapshot) {
     return JSON.stringify(tables, null, 2);
 }
 
-function buildStateUpdateSystemPrompt() {
+function buildStateUpdateSystemPrompt(initializing = false) {
+    const initializationInstructions = initializing ? `
+This request initializes the first protagonist-state snapshot for this chat. The singleton rows already exist as row_id 1 but their cells may be blank. Use updateRow to populate clearly established global_state, protagonist_info, and options fields. Use insertRow for clearly established important characters, skills, inventory, and quests. Reconstruct the current state and durable background conclusions from all supplied conversation history and optional Memory Summary, rather than limiting the edit to the final turn. Leave facts blank or omit them when the supplied context does not establish them; never invent initialization data.
+` : '';
     return `You update the protagonist-state database after a completed roleplay turn.
 
 Use only the exact table and English column names below. Keep existing row_id values when updating or deleting a row. For insertRow, omit row_id; it is assigned automatically.
@@ -903,6 +1031,7 @@ Allowed operations are strict:
 - Before insertRow, compare the table's existing business key: important_characters.name, protagonist_skills.skill_name, inventory.item_name, or quests_events.quest_name. If it already exists, update that row instead of inserting a duplicate.
 - insertRow must include all required identity fields: important_characters requires name and gender_age (is_absent defaults to 否); protagonist_skills requires skill_name and skill_type; inventory requires item_name and category (quantity defaults to 1); quests_events requires quest_name and quest_type.
 - Never clear a required identity field. inventory.quantity must remain a positive integer, and important_characters.is_absent must be exactly 是 or 否.
+${initializationInstructions}
 
 State-table content policy:
 - Memory Summary stores the detailed event history. The protagonist-state tables store only current facts and compact conclusions that remain useful in later scenes. Use conversation history and Memory Summary as evidence, but do not copy their scene-by-scene narration into table cells.
@@ -968,7 +1097,7 @@ function getMemorySummaryText() {
     return String(window.memoryExtension?.getSummaryText?.() || '');
 }
 
-function buildStateUpdateRequestMessages(snapshot, context, target) {
+function buildStateUpdateRequestMessages(snapshot, context, target, { initializing = false } = {}) {
     const settings = { ...defaultSettings, ...(extension_settings.protagonistState || {}) };
     const history = selectUpdateHistoryMessages(context.chat, target.index, settings.updateHistoryMessages);
     const sections = [
@@ -978,7 +1107,7 @@ function buildStateUpdateRequestMessages(snapshot, context, target) {
     const summary = settings.includeMemorySummary ? getMemorySummaryText().trim() : '';
     if (summary) sections.push(`[Memory Summary]\n${summary}`);
     return [
-        { role: 'system', content: buildStateUpdateSystemPrompt() },
+        { role: 'system', content: buildStateUpdateSystemPrompt(initializing) },
         { role: 'user', content: sections.join('\n\n') },
     ];
 }
@@ -1045,16 +1174,13 @@ async function updateStateForMessage(messageId = null, { force = false, quiet = 
     }
     if (!force && target.assistantMessage.extra?.protagonist_state_updated) return false;
 
-    const snapshot = readDatabaseSnapshot(context.chat);
-    if (!snapshot) {
-        if (!quiet) toastr.warning('No protagonist-state snapshot is available in this chat.');
-        return false;
-    }
+    const { snapshot, initializing } = prepareStateUpdateSnapshot(context.chat);
 
     stateUpdateInProgress = true;
-    const toast = quiet ? null : toastr.info('Updating protagonist state...', 'Please wait', { timeOut: 0, extendedTimeOut: 0 });
+    const toastMessage = initializing ? 'Initializing protagonist state...' : 'Updating protagonist state...';
+    const toast = quiet ? null : toastr.info(toastMessage, 'Please wait', { timeOut: 0, extendedTimeOut: 0 });
     try {
-        const messages = buildStateUpdateRequestMessages(snapshot, context, target);
+        const messages = buildStateUpdateRequestMessages(snapshot, context, target, { initializing });
         const responseText = await requestStateUpdate(messages);
         if (!isTargetStillCurrent(context, target)) return false;
         if (!/<tableEdit\b[\s\S]*?<\/tableEdit>/i.test(responseText)) {
