@@ -1705,7 +1705,10 @@ function onIncludeMemorySummaryInput() {
 }
 function onShowBottomBarInput() { extension_settings.protagonistState.showBottomBar = $(this).prop('checked'); saveSettings(); renderBottomBar(); }
 function onTableToggle() { const tk = $(this).data('table'); extension_settings.protagonistState.tables[tk] = $(this).prop('checked'); saveSettings(); updatePromptInjection(); renderBottomBar(); }
-function onOpenPopupClick() { openStatePopup(); }
+function onOpenPopupClick(event) {
+    openStatePopup();
+    event?.stopPropagation();
+}
 async function onUpdateNowClick() { await updateStateForMessage(null, { force: true }); }
 
 function setupListeners() {
@@ -1718,7 +1721,7 @@ function setupListeners() {
     $('#protagonist_state_update_history_messages').off('input').on('input', onUpdateHistoryMessagesInput);
     $('#protagonist_state_include_memory_summary').off('input').on('input', onIncludeMemorySummaryInput);
     $('#protagonist_state_show_bottom_bar').off('input').on('input', onShowBottomBarInput);
-    $('#protagonist_state_open_popup').off('click').on('click', onOpenPopupClick);
+    $('#protagonist_state_open_popup, #protagonistStateOpenPanelButton').off('click').on('click', onOpenPopupClick);
     $('#protagonist_state_update_now').off('click').on('click', onUpdateNowClick);
     for (const tableKey of Object.keys(SHEET_MAP).map(k => SHEET_MAP[k].key)) {
         $(`#protagonist_state_table_${tableKey}`).off('input').on('input', onTableToggle);
@@ -1729,9 +1732,17 @@ function setupListeners() {
 
 export async function init() {
     const settingsHtml = await renderExtensionTemplateAsync('protagonist-state', 'settings', { defaultSettings });
-    $('#extensions_settings').append(settingsHtml);
+    const $settingsContainer = $('#protagonist_state_container');
+    ($settingsContainer.length ? $settingsContainer : $('#extensions_settings')).append(settingsHtml);
     loadSettings();
     setupListeners();
+
+    $('#protagonist_state_wand_button').remove();
+    const wandButtonHtml = `<div id="protagonist_state_wand_button" class="extension_container"><div id="protagonist_state_wand_item" class="list-group-item flex-container flexGap5" title="打开主角状态面板"><div class="fa-fw fa-solid fa-table-list extensionsMenuExtensionButton"></div><span>主角状态</span></div></div>`;
+    const $memoryWandButton = $('#memory_wand_button');
+    if ($memoryWandButton.length) $memoryWandButton.after(wandButtonHtml);
+    else $('#extensionsMenu').append(wandButtonHtml);
+    $('#protagonist_state_wand_item').off('click').on('click', onOpenPopupClick);
 
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
     eventSource.makeLast(event_types.CHARACTER_MESSAGE_RENDERED, onCharacterMessageRendered);

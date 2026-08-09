@@ -1526,7 +1526,10 @@ export async function init() {
         $(document.body).append($('#memory_manager_popup'));
         setupListeners();
         $('#memory_wand_button').remove();
-        $('#extensionsMenu').append(`<div id="memory_wand_button" class="extension_container"><div id="memory_wand_item" class="list-group-item flex-container flexGap5" title="打开总结面板"><div class="fa-fw fa-solid fa-book-open extensionsMenuExtensionButton"></div><span>总结</span></div></div>`);
+        const wandButtonHtml = `<div id="memory_wand_button" class="extension_container"><div id="memory_wand_item" class="list-group-item flex-container flexGap5" title="打开总结面板"><div class="fa-fw fa-solid fa-book-open extensionsMenuExtensionButton"></div><span>总结</span></div></div>`;
+        const $protagonistStateWandButton = $('#protagonist_state_wand_button');
+        if ($protagonistStateWandButton.length) $protagonistStateWandButton.before(wandButtonHtml);
+        else $('#extensionsMenu').append(wandButtonHtml);
         $('#memory_wand_item').on('click', function (event) {
             openMemoryManager();
             event.stopPropagation();

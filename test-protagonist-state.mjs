@@ -84,6 +84,12 @@ if (!mod || typeof mod.parseDDLColumns !== 'function') {
     process.exit(1);
 }
 
+const protagonistStateSource = fs.readFileSync(indexJsPath, 'utf8');
+const protagonistStateSettingsHtml = fs.readFileSync(path.resolve('public/scripts/extensions/protagonist-state/settings.html'), 'utf8');
+const memorySource = fs.readFileSync(path.resolve('public/scripts/extensions/memory/index.js'), 'utf8');
+const memorySettingsHtml = fs.readFileSync(path.resolve('public/scripts/extensions/memory/settings.html'), 'utf8');
+const mainPageHtml = fs.readFileSync(path.resolve('public/index.html'), 'utf8');
+
 let passed = 0;
 let failed = 0;
 function test(name, fn) {
@@ -94,6 +100,36 @@ async function asyncTest(name, fn) {
     try { await fn(); passed++; console.log(`  ✓ ${name}`); }
     catch (e) { failed++; console.log(`  ✗ ${name}\n    ${e.message}`); }
 }
+
+console.log('=== extension UI shortcuts ===');
+test('places Protagonist State in the right settings column below Memory', () => {
+    const memoryContainerIndex = mainPageHtml.indexOf('id="summarize_container"');
+    const protagonistContainerIndex = mainPageHtml.indexOf('id="protagonist_state_container"');
+    const regexContainerIndex = mainPageHtml.indexOf('id="regex_container"');
+    assert.ok(memoryContainerIndex >= 0);
+    assert.ok(protagonistContainerIndex > memoryContainerIndex);
+    assert.ok(regexContainerIndex > protagonistContainerIndex);
+    assert.ok(protagonistStateSource.includes("$('#protagonist_state_container')"));
+});
+
+test('opens the same state popup from the title, drawer body, and wand shortcuts', () => {
+    assert.ok(protagonistStateSettingsHtml.includes('id="protagonistStateOpenPanelButton"'));
+    assert.ok(protagonistStateSettingsHtml.includes('id="protagonist_state_open_popup"'));
+    assert.ok(protagonistStateSource.includes('#protagonist_state_open_popup, #protagonistStateOpenPanelButton'));
+    assert.ok(protagonistStateSource.includes('id="protagonist_state_wand_item"'));
+    assert.ok(protagonistStateSource.includes("$('#protagonist_state_wand_button').remove()"));
+    assert.ok(protagonistStateSource.includes("$('#protagonist_state_wand_item').off('click').on('click', onOpenPopupClick)"));
+    assert.ok(protagonistStateSource.includes('event?.stopPropagation()'));
+});
+
+test('keeps Memory before Protagonist State regardless of asynchronous load order', () => {
+    assert.ok(memorySettingsHtml.includes('id="summaryExtensionOpenPanelButton"'));
+    assert.ok(memorySource.includes('#summarySettingsBlockToggle, #summaryExtensionOpenPanelButton'));
+    assert.ok(memorySource.includes("$('#memory_wand_button').remove()"));
+    assert.ok(memorySource.includes("$('#protagonist_state_wand_button')"));
+    assert.ok(memorySource.includes('$protagonistStateWandButton.before(wandButtonHtml)'));
+    assert.ok(protagonistStateSource.includes('$memoryWandButton.after(wandButtonHtml)'));
+});
 
 console.log('=== parseDDLColumns ===');
 const globalDdl = `CREATE TABLE global_state ( -- 全局数据表
