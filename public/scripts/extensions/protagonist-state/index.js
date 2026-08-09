@@ -439,9 +439,29 @@ function createInitialStateSnapshot() {
 
 function prepareStateUpdateSnapshot(chat) {
     const existing = readDatabaseSnapshot(chat);
-    return existing
-        ? { snapshot: existing, initializing: false }
-        : { snapshot: createInitialStateSnapshot(), initializing: true };
+    const template = createInitialStateSnapshot();
+    if (!existing) {
+        return {
+            snapshot: template,
+            initializing: true,
+            repairingTables: [],
+        };
+    }
+
+    const snapshot = cloneValue(existing);
+    const existingActiveCount = Object.keys(SHEET_MAP).filter(sheetKey => snapshot[sheetKey]).length;
+    const repairingTables = [];
+    for (const [sheetKey, info] of Object.entries(SHEET_MAP)) {
+        if (snapshot[sheetKey]) continue;
+        snapshot[sheetKey] = template[sheetKey];
+        repairingTables.push(info.key);
+    }
+
+    return {
+        snapshot,
+        initializing: existingActiveCount === 0,
+        repairingTables: existingActiveCount > 0 ? repairingTables : [],
+    };
 }
 
 function detectIsolationKey(chat) {
@@ -1006,9 +1026,12 @@ function buildStructuredStateForUpdate(snapshot) {
     return JSON.stringify(tables, null, 2);
 }
 
-function buildStateUpdateSystemPrompt(initializing = false) {
+function buildStateUpdateSystemPrompt(initializing = false, repairingTables = []) {
     const initializationInstructions = initializing ? `
 This request initializes the first protagonist-state snapshot for this chat. The singleton rows already exist as row_id 1 but their cells may be blank. Use updateRow to populate clearly established global_state, protagonist_info, and options fields. Use insertRow for clearly established important characters, skills, inventory, and quests. Reconstruct the current state and durable background conclusions from all supplied conversation history and optional Memory Summary, rather than limiting the edit to the final turn. Leave facts blank or omit them when the supplied context does not establish them; never invent initialization data.
+` : '';
+    const repairInstructions = !initializing && repairingTables.length ? `
+This request repairs a partial protagonist-state snapshot. These missing tables were added from the canonical blank template: ${repairingTables.join(', ')}. Populate clearly established current facts in those blank tables from the supplied history and optional Memory Summary. Preserve every existing table and row; update existing data only for a genuine state change established by the final turn, and do not rewrite existing rows merely because the snapshot is being repaired.
 ` : '';
     return `You update the protagonist-state database after a completed roleplay turn.
 
@@ -1032,6 +1055,7 @@ Allowed operations are strict:
 - insertRow must include all required identity fields: important_characters requires name and gender_age (is_absent defaults to 否); protagonist_skills requires skill_name and skill_type; inventory requires item_name and category (quantity defaults to 1); quests_events requires quest_name and quest_type.
 - Never clear a required identity field. inventory.quantity must remain a positive integer, and important_characters.is_absent must be exactly 是 or 否.
 ${initializationInstructions}
+${repairInstructions}
 
 State-table content policy:
 - Memory Summary stores the detailed event history. The protagonist-state tables store only current facts and compact conclusions that remain useful in later scenes. Use conversation history and Memory Summary as evidence, but do not copy their scene-by-scene narration into table cells.
@@ -1097,7 +1121,7 @@ function getMemorySummaryText() {
     return String(window.memoryExtension?.getSummaryText?.() || '');
 }
 
-function buildStateUpdateRequestMessages(snapshot, context, target, { initializing = false } = {}) {
+function buildStateUpdateRequestMessages(snapshot, context, target, { initializing = false, repairingTables = [] } = {}) {
     const settings = { ...defaultSettings, ...(extension_settings.protagonistState || {}) };
     const history = selectUpdateHistoryMessages(context.chat, target.index, settings.updateHistoryMessages);
     const sections = [
@@ -1107,7 +1131,7 @@ function buildStateUpdateRequestMessages(snapshot, context, target, { initializi
     const summary = settings.includeMemorySummary ? getMemorySummaryText().trim() : '';
     if (summary) sections.push(`[Memory Summary]\n${summary}`);
     return [
-        { role: 'system', content: buildStateUpdateSystemPrompt(initializing) },
+        { role: 'system', content: buildStateUpdateSystemPrompt(initializing, repairingTables) },
         { role: 'user', content: sections.join('\n\n') },
     ];
 }
@@ -1174,13 +1198,13 @@ async function updateStateForMessage(messageId = null, { force = false, quiet = 
     }
     if (!force && target.assistantMessage.extra?.protagonist_state_updated) return false;
 
-    const { snapshot, initializing } = prepareStateUpdateSnapshot(context.chat);
+    const { snapshot, initializing, repairingTables } = prepareStateUpdateSnapshot(context.chat);
 
     stateUpdateInProgress = true;
     const toastMessage = initializing ? 'Initializing protagonist state...' : 'Updating protagonist state...';
     const toast = quiet ? null : toastr.info(toastMessage, 'Please wait', { timeOut: 0, extendedTimeOut: 0 });
     try {
-        const messages = buildStateUpdateRequestMessages(snapshot, context, target, { initializing });
+        const messages = buildStateUpdateRequestMessages(snapshot, context, target, { initializing, repairingTables });
         const responseText = await requestStateUpdate(messages);
         if (!isTargetStillCurrent(context, target)) return false;
         if (!/<tableEdit\b[\s\S]*?<\/tableEdit>/i.test(responseText)) {
@@ -1189,6 +1213,9 @@ async function updateStateForMessage(messageId = null, { force = false, quiet = 
 
         const result = processTableEditResponse(responseText, snapshot);
         if (!result.ok) throw new Error(result.errors.join(' '));
+        if (initializing && result.changedCount === 0) {
+            throw new Error('The initial protagonist-state update returned no material state changes. Nothing was saved; retry initialization after more context is available.');
+        }
         if (!isTargetStillCurrent(context, target, true)) return false;
         const saved = await writeSnapshotToChat(result.snapshot, context, target, Date.now());
         if (!saved) throw new Error('The protagonist-state snapshot could not be saved to its target message.');

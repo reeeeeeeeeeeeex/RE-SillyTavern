@@ -20,6 +20,8 @@ code = code.replace(/export\s+async\s+function\s+init/, 'async function init');
 
 // Mock globals used by the module.
 let currentContext = { chat: [] };
+let rawSummaryResponses = [];
+const rawSummaryCalls = [];
 const mocks = {
     getStringHash: value => String(value || '').split('').reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 0),
     eventSource: { on: () => {} },
@@ -27,12 +29,16 @@ const mocks = {
     saveSettingsDebounced: () => {},
     setExtensionPrompt: () => {},
     getContext: () => currentContext,
-    extension_settings: { protagonistState: {} },
+    extension_settings: { protagonistState: {}, memory: { source: 'main' } },
+    generateRaw: async options => {
+        rawSummaryCalls.push(options);
+        return rawSummaryResponses.shift() ?? '';
+    },
     renderExtensionTemplateAsync: async () => '',
     debounce_timeout: { default: 100 },
     debounce: (fn) => fn,
     window: {},
-    $: () => ({ prop: () => {}, val: () => {}, trigger: () => {}, length: 0, off: () => ({ on: () => {} }) }),
+    $: () => ({ prop: () => {}, val: () => {}, trigger: () => {}, remove: () => {}, is: () => false, length: 0, off: () => ({ on: () => {} }) }),
     toastr: { success: () => {}, warning: () => {}, info: () => {}, error: () => {}, clear: () => {} },
 };
 
@@ -45,7 +51,7 @@ return {
   extractTableEditBlock, parseStructuredEdits, applyEditsToSnapshot, processTableEditResponse,
   normalizeSnapshotRowIds, normalizeKnownSheetLayouts, mergePastExperienceValues,
   createInitialStateSnapshot, prepareStateUpdateSnapshot,
-  buildStateUpdateSystemPrompt, writeSnapshotToChat, isTargetStillCurrent,
+  buildStateUpdateSystemPrompt, writeSnapshotToChat, isTargetStillCurrent, updateStateForMessage,
   selectUpdateHistoryMessages, buildStateUpdateRequestMessages, getSelectedTableKeys,
   renderEditableStateRecords, ensureSheetContent, renderPopupContent, getTimelineContextForMemory,
   getAssistantTurnsSinceStateUpdate, hasStateUpdateMarker
@@ -443,22 +449,79 @@ test('creates all seven canonical sheets without copying another chat', () => {
     assert.strictEqual(snapshot.sheet_lEARaBa8.content.length, 1);
 });
 
-test('returns a fresh template only when the chat has no persisted snapshot', () => {
+test('returns a fresh template only when the chat has no persisted active state tables', () => {
     const first = mod.prepareStateUpdateSnapshot([]);
     const second = mod.prepareStateUpdateSnapshot([]);
     assert.strictEqual(first.initializing, true);
+    assert.deepStrictEqual(first.repairingTables, []);
     first.snapshot.sheet_dCudvUnH.content[1][1] = 'Changed locally';
     assert.strictEqual(second.snapshot.sheet_dCudvUnH.content[1][1], '');
 
-    const persisted = {
-        sheet_dCudvUnH: { content: [['row_id'], [1]] },
-    };
+    const customSheet = { name: 'Custom', content: [['row_id', 'value'], [1, 'keep me']] };
     const prepared = mod.prepareStateUpdateSnapshot([{
         is_user: false,
-        TavernDB_ACU_IsolatedData: { '': { independentData: persisted } },
+        TavernDB_ACU_IsolatedData: { '': { independentData: { sheet_custom: customSheet } } },
     }]);
+    assert.strictEqual(prepared.initializing, true);
+    assert.deepStrictEqual(prepared.repairingTables, []);
+    assert.deepStrictEqual(prepared.snapshot.sheet_custom, customSheet);
+    assert.deepStrictEqual(Object.keys(prepared.snapshot).filter(key => mod.SHEET_MAP[key]), Object.keys(mod.SHEET_MAP));
+});
+
+test('fills only missing canonical tables in a partial snapshot and preserves existing data', () => {
+    const existingGlobal = {
+        uid: 'sheet_dCudvUnH',
+        name: 'Customized global table',
+        sourceData: { ddl: globalDdl },
+        content: [['row_id', '地点'], [7, 'Existing location']],
+        customMetadata: { keep: true },
+    };
+    const customSheet = { name: 'Custom', content: [['row_id'], [99]] };
+    const prepared = mod.prepareStateUpdateSnapshot([{
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+            '': {
+                independentData: {
+                    sheet_dCudvUnH: existingGlobal,
+                    sheet_custom: customSheet,
+                    sheet_3NoMc1wI: { name: '纪要表', content: [['row_id'], [1]] },
+                },
+            },
+        },
+    }]);
+
     assert.strictEqual(prepared.initializing, false);
-    assert.deepStrictEqual(prepared.snapshot.sheet_dCudvUnH.content, persisted.sheet_dCudvUnH.content);
+    assert.deepStrictEqual(prepared.snapshot.sheet_dCudvUnH, existingGlobal);
+    assert.deepStrictEqual(prepared.snapshot.sheet_custom, customSheet);
+    assert.ok(!prepared.snapshot.sheet_3NoMc1wI);
+    assert.deepStrictEqual(
+        prepared.repairingTables,
+        Object.values(mod.SHEET_MAP).map(info => info.key).filter(key => key !== 'global_state'),
+    );
+    for (const sheetKey of Object.keys(mod.SHEET_MAP)) assert.ok(prepared.snapshot[sheetKey]);
+
+    const result = mod.processTableEditResponse(
+        `<tableEdit>\nupdateRow('protagonist_info', 1, {"char_name":"Alex"})\n</tableEdit>`,
+        prepared.snapshot,
+    );
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.snapshot.sheet_DpKcVGqg.content[1][1], 'Alex');
+    assert.deepStrictEqual(result.snapshot.sheet_dCudvUnH, existingGlobal);
+    assert.deepStrictEqual(result.snapshot.sheet_custom, customSheet);
+});
+
+test('leaves a complete canonical snapshot unchanged', () => {
+    const complete = mod.createInitialStateSnapshot();
+    complete.sheet_dCudvUnH.content[1][1] = 'Existing location';
+    complete.sheet_custom = { name: 'Custom', content: [['row_id'], [5]] };
+    const prepared = mod.prepareStateUpdateSnapshot([{
+        is_user: false,
+        TavernDB_ACU_IsolatedData: { '': { independentData: complete } },
+    }]);
+
+    assert.strictEqual(prepared.initializing, false);
+    assert.deepStrictEqual(prepared.repairingTables, []);
+    assert.deepStrictEqual(prepared.snapshot, complete);
 });
 
 test('the initial template accepts singleton updates and multi-row inserts', () => {
@@ -530,6 +593,10 @@ test('state update prompt specifies tableEdit-only output and schemas', () => {
     assert.ok(initializationPrompt.includes('initializes the first protagonist-state snapshot'));
     assert.ok(initializationPrompt.includes('singleton rows already exist as row_id 1'));
     assert.ok(initializationPrompt.includes('never invent initialization data'));
+    const repairPrompt = mod.buildStateUpdateSystemPrompt(false, ['protagonist_info', 'inventory']);
+    assert.ok(repairPrompt.includes('repairs a partial protagonist-state snapshot'));
+    assert.ok(repairPrompt.includes('protagonist_info, inventory'));
+    assert.ok(repairPrompt.includes('do not rewrite existing rows merely because the snapshot is being repaired'));
 });
 
 test('repairs missing, invalid, and duplicate active row IDs without touching unrelated sheets', () => {
@@ -858,6 +925,90 @@ test('discards a legacy chronicle sheet when reading a snapshot', () => {
 });
 
 console.log('=== atomic snapshot save ===');
+await asyncTest('does not save or mark an empty first initialization and retries in initialization mode', async () => {
+    const user = { is_user: true, is_system: false, mes: 'Begin the story' };
+    const assistant = { is_user: false, is_system: false, mes: 'The protagonist enters the market.', extra: {} };
+    let saves = 0;
+    currentContext = {
+        groupId: null,
+        chatId: 'new-chat-bootstrap',
+        characterId: 7,
+        chat: [user, assistant],
+        saveChat: async () => { saves++; },
+    };
+    rawSummaryCalls.length = 0;
+    rawSummaryResponses = [
+        '<tableEdit></tableEdit>',
+        `<tableEdit>\nupdateRow('global_state', 1, {"current_location":""})\n</tableEdit>`,
+        `<tableEdit>\nupdateRow('global_state', 1, {"current_location":"Market"})\n</tableEdit>`,
+    ];
+
+    const previousConsoleError = console.error;
+    console.error = () => {};
+    let emptyResult;
+    let sameValueResult;
+    try {
+        emptyResult = await mod.updateStateForMessage(null, { force: true, quiet: true });
+        sameValueResult = await mod.updateStateForMessage(null, { force: true, quiet: true });
+    } finally {
+        console.error = previousConsoleError;
+    }
+
+    assert.strictEqual(emptyResult, false);
+    assert.strictEqual(sameValueResult, false);
+    assert.strictEqual(saves, 0);
+    assert.ok(!assistant.TavernDB_ACU_IsolatedData);
+    assert.ok(!assistant.extra.protagonist_state_updated);
+    assert.strictEqual(rawSummaryCalls.length, 2);
+    assert.ok(rawSummaryCalls.every(call => call.systemPrompt.includes('initializes the first protagonist-state snapshot')));
+
+    const initialized = await mod.updateStateForMessage(null, { force: true, quiet: true });
+    assert.strictEqual(initialized, true);
+    assert.strictEqual(saves, 1);
+    assert.ok(assistant.extra.protagonist_state_updated);
+    assert.strictEqual(
+        assistant.TavernDB_ACU_IsolatedData[''].independentData.sheet_dCudvUnH.content[1][1],
+        'Market',
+    );
+});
+
+await asyncTest('atomically saves canonical table repairs after a legal partial-snapshot response', async () => {
+    const customSheet = { name: 'Custom', content: [['row_id'], [9]] };
+    const assistant = {
+        is_user: false,
+        is_system: false,
+        mes: 'An existing reply',
+        extra: {},
+        TavernDB_ACU_IsolatedData: {
+            '': {
+                independentData: {
+                    sheet_dCudvUnH: { content: [['row_id'], [1]] },
+                    sheet_custom: customSheet,
+                },
+            },
+        },
+    };
+    let saves = 0;
+    currentContext = {
+        groupId: null,
+        chatId: 'partial-state-repair',
+        characterId: 7,
+        chat: [assistant],
+        saveChat: async () => { saves++; },
+    };
+    rawSummaryCalls.length = 0;
+    rawSummaryResponses = ['<tableEdit></tableEdit>'];
+
+    const repaired = await mod.updateStateForMessage(null, { force: true, quiet: true });
+    assert.strictEqual(repaired, true);
+    assert.strictEqual(saves, 1);
+    assert.ok(assistant.extra.protagonist_state_updated);
+    const savedSnapshot = assistant.TavernDB_ACU_IsolatedData[''].independentData;
+    for (const sheetKey of Object.keys(mod.SHEET_MAP)) assert.ok(savedSnapshot[sheetKey]);
+    assert.deepStrictEqual(savedSnapshot.sheet_custom, customSheet);
+    assert.ok(rawSummaryCalls[0].systemPrompt.includes('repairs a partial protagonist-state snapshot'));
+});
+
 await asyncTest('writes the snapshot and success marker to the exact target in one save', async () => {
     const assistant = { is_user: false, is_system: false, mes: 'target reply', extra: {} };
     let saves = 0;
