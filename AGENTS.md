@@ -52,6 +52,7 @@ Jest test files live in `tests/` and cover: `util.test.js`, `prompt-converters.t
 node test-protagonist-state.mjs   # Protagonist State: DDL parsing, delta reconstruct, snapshot read
 node test-memory.mjs              # Memory: timeline normalization and cumulative batches
 node test-latest-user-input-anchor.mjs # Chat Completion latest User anchor and SEMI_TOOLS ordering
+node test-auto-background.mjs     # ComfyUI automatic novel background scene parsing and counters
 ```
 
 The extension harnesses strip ESM imports, mock browser globals, and exercise pure logic functions via `new Function()` eval. The latest-User anchor harness imports its pure frontend helper directly and verifies the real backend `SEMI_TOOLS` converter.
@@ -193,6 +194,18 @@ Location: `public/scripts/extensions/protagonist-state/`
 - Injects via `setExtensionPrompt()` at `IN_CHAT @ Depth 0` / `SYSTEM` by default. Every selected table is injected in full; no injection-time ellipsis or per-table word cap is applied. The bottom-bar's collapsed preview remains compact only for display.
 - Exposes `window.protagonistStateExtension.{getCurrentStateText, getTimelineContext, getLastSnapshot, getSettings, openPopup, applyTableEdit}`. `getTimelineContext` always reads global time/location independently of display-table choices. The `provideToMemory` setting gates full state injection; Memory exposes `window.memoryExtension.{summarizeNow, getSummaryText, getSettings}` for the popup's Memory tab.
 - Logic tests (no browser needed): `node test-protagonist-state.mjs` from the repo root. The harness strips ESM imports, mocks browser globals, and exercises DDL parsing, 2D-array-to-object conversion, delta apply/reconstruct, isolation-key detection, and snapshot reading.
+
+### Automatic ComfyUI Novel Backgrounds
+
+Location: `public/scripts/extensions/stable-diffusion/`.
+
+- Reuses the built-in ComfyUI connection, workflow storage, placeholder substitution, generated-image saving, and `FORCE_SET_BACKGROUND` event. Automatic backgrounds require the Image Generation source to be `comfy` and use a separately selected API-format workflow; the per-request override never changes the normal `comfy_workflow` setting.
+- Settings provide disabled-by-default automation with `scene` (default), `interval` (default 5 real Assistant replies), and `manual` modes. The manual button remains available while automation is disabled. Existing wand and `/imagine background` behavior is unchanged.
+- Scene analysis is a quiet Main API request. The latest Assistant narrative is authoritative, with the preceding User message, Protagonist State timeline context, and latest Memory `[Stage N]` as supporting evidence. It returns a normalized scene key plus an English background-only prompt; ComfyUI runs only when the scene key changes in `scene` mode.
+- Manual “generate current background” deliberately omits a message id and resolves the latest real narrative Assistant reply. Missing ids must remain distinct from numeric message `0`; otherwise the stale-target guard silently discards manual requests in chats whose first message is an Assistant greeting.
+- Successful generations mark the triggering narrative Assistant message with `extra.auto_background_generated`. Interval counting ignores User, System, blank, and generated-background messages. The optional visible image card is stored as an `is_system` extension media message with `extra.auto_background`, so it is rendered but excluded from story prompts, Memory, Protagonist State, and subsequent auto-background counts.
+- In-flight work captures the exact chat and Assistant message. Chat switches, edits, regeneration, superseding Assistant replies, invalid workflows, failed ComfyUI requests, or failed chat saves do not leave a success marker or apply a stale background. A newer target aborts and replaces older automatic work.
+- ComfyUI UI-format graphs (`nodes` / `links`) are rejected with instructions to export via `Save (API Format)`. Pure logic tests live in `test-auto-background.mjs`.
 
 ### SP·数据库 III (Database Reference) Plugin
 

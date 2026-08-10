@@ -283,6 +283,50 @@
                         <i class="fa-solid fa-trash-can"></i>
                     </div>
                 </div>
+                <div class="sd_auto_background_card marginTop10">
+                    <div class="sd_auto_background_heading">
+                        <div>
+                            <strong>自动小说背景</strong>
+                            <small>根据剧情转场自动调用独立的 ComfyUI 工作流</small>
+                        </div>
+                        <label class="checkbox_label" for="sd_auto_background_enabled">
+                            <input id="sd_auto_background_enabled" type="checkbox" />
+                            <span>启用</span>
+                        </label>
+                    </div>
+                    <div class="sd_auto_background_grid">
+                        <label for="sd_auto_background_mode">
+                            <span>触发方式</span>
+                            <select id="sd_auto_background_mode" class="text_pole">
+                                <option value="scene">场景变化时</option>
+                                <option value="interval">每 N 轮</option>
+                                <option value="manual">仅手动</option>
+                            </select>
+                        </label>
+                        <label id="sd_auto_background_interval_block" for="sd_auto_background_interval">
+                            <span>助手回复轮数</span>
+                            <input id="sd_auto_background_interval" class="text_pole" type="number" min="1" max="100" step="1" />
+                        </label>
+                    </div>
+                    <label for="sd_auto_background_workflow">
+                        <span>小说背景工作流</span>
+                        <select id="sd_auto_background_workflow" class="text_pole">
+                            <option value="">请选择 API Format 工作流</option>
+                        </select>
+                    </label>
+                    <label class="checkbox_label marginTop5" for="sd_auto_background_show_message">
+                        <input id="sd_auto_background_show_message" type="checkbox" />
+                        <span>在聊天中保留背景图片卡片</span>
+                    </label>
+                    <div class="flex-container flexnowrap alignItemsCenter marginTop5">
+                        <button id="sd_auto_background_generate_now" class="menu_button" type="button">
+                            <i class="fa-solid fa-image"></i>
+                            <span>立即生成当前背景</span>
+                        </button>
+                        <span id="sd_auto_background_status" class="sd_auto_background_status"></span>
+                    </div>
+                    <small class="sd_auto_background_hint">场景识别以最新剧情回复为主，主角状态中的地点/时间和最新 Memory Stage 仅作辅助。自动图片不会进入后续剧情上下文，也不计入自动总结或主角状态轮数。</small>
+                </div>
             </div>
             <div data-sd-source="pollinations">
                 <a href="https://enter.pollinations.ai">Pollinations.ai</a>

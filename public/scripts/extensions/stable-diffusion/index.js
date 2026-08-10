@@ -63,6 +63,18 @@ import { oai_settings } from '../../openai.js';
 import { power_user } from '/scripts/power-user.js';
 import { MacrosParser } from '/scripts/macros.js';
 import { ActionLoaderHandle, loader } from '/scripts/action-loader.js';
+import {
+    AUTO_BACKGROUND_MARKER_KEY,
+    AUTO_BACKGROUND_MESSAGE_KEY,
+    AUTO_BACKGROUND_MODES,
+    buildAutoBackgroundAnalysisPrompt,
+    extractLatestMemoryStage,
+    findLastAutoBackgroundMarker,
+    getAssistantTurnsSinceLastAutoBackground,
+    isNarrativeAssistantMessage,
+    normalizeAutoBackgroundMessageId,
+    parseSceneAnalysisResponse,
+} from './auto-background.js';
 
 export { MODULE_NAME };
 
@@ -108,7 +120,13 @@ const initiators = {
     wand: 'wand',
     swipe: 'swipe',
     tool: 'tool',
+    autoBackground: 'auto_background',
 };
+
+const autoBackgroundEventTypes = new Set(['normal', 'swipe', 'regenerate']);
+let autoBackgroundPending = null;
+let autoBackgroundQueuedTarget = null;
+let lastAutoBackgroundCheckedTarget = '';
 
 const generationMode = {
     TOOL: -2,
@@ -339,6 +357,13 @@ const defaultSettings = {
     comfy_url: 'http://127.0.0.1:8188',
     comfy_workflow: 'Default_Comfy_Workflow.json',
 
+    // Automatic novel backgrounds (ComfyUI only)
+    auto_background_enabled: false,
+    auto_background_mode: AUTO_BACKGROUND_MODES.SCENE,
+    auto_background_interval: 5,
+    auto_background_workflow: '',
+    auto_background_show_message: true,
+
     comfy_runpod_url: '',
 
     // Pollinations settings
@@ -543,6 +568,10 @@ async function loadSettings() {
     $('#sd_comfy_url').val(extension_settings.sd.comfy_url);
     $('#sd_comfy_prompt').val(extension_settings.sd.comfy_prompt);
     $('#sd_comfy_runpod_url').val(extension_settings.sd.comfy_runpod_url);
+    $('#sd_auto_background_enabled').prop('checked', extension_settings.sd.auto_background_enabled);
+    $('#sd_auto_background_mode').val(extension_settings.sd.auto_background_mode);
+    $('#sd_auto_background_interval').val(extension_settings.sd.auto_background_interval);
+    $('#sd_auto_background_show_message').prop('checked', extension_settings.sd.auto_background_show_message);
     $('#sd_snap').prop('checked', extension_settings.sd.snap);
     $('#sd_minimal_prompt_processing').prop('checked', extension_settings.sd.minimal_prompt_processing);
     $('#sd_clip_skip').val(extension_settings.sd.clip_skip);
@@ -573,6 +602,7 @@ async function loadSettings() {
     $('#sd_resolution').val(resolutionId);
 
     toggleSourceControls();
+    syncAutoBackgroundControls();
     addPromptTemplates();
     registerFunctionTool();
 
@@ -872,8 +902,15 @@ async function refinePrompt(prompt, args = null) {
 }
 
 async function onChatChanged() {
+    if (autoBackgroundPending?.controller) {
+        autoBackgroundPending.controller.abort('Chat changed');
+    }
+    autoBackgroundQueuedTarget = null;
+    lastAutoBackgroundCheckedTarget = '';
+
     if (this_chid === undefined || selected_group) {
         $('#sd_character_prompt_block').hide();
+        renderAutoBackgroundStatus();
         return;
     }
 
@@ -900,6 +937,401 @@ async function onChatChanged() {
     $('#sd_character_negative_prompt').val(negativePrompt);
     $('#sd_character_prompt_share').prop('checked', hasSharedData);
     await adjustElementScrollHeight();
+    renderAutoBackgroundStatus();
+}
+
+function getAutoBackgroundChatIdentity(context = getContext()) {
+    return [context?.groupId ?? '', context?.characterId ?? '', getCurrentChatId() ?? context?.chatId ?? ''].join(':');
+}
+
+function getAutoBackgroundTextHash(value) {
+    let hash = 2166136261;
+    for (const char of String(value || '')) {
+        hash ^= char.charCodeAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+}
+
+function getAutoBackgroundTarget(messageId = null) {
+    const context = getContext();
+    const chat = context?.chat || [];
+    let index = normalizeAutoBackgroundMessageId(messageId);
+    if (!isNarrativeAssistantMessage(chat[index])) {
+        index = -1;
+        for (let cursor = chat.length - 1; cursor >= 0; cursor--) {
+            if (isNarrativeAssistantMessage(chat[cursor])) {
+                index = cursor;
+                break;
+            }
+        }
+    }
+    if (index < 0) return null;
+
+    let userMessage = '';
+    for (let cursor = index - 1; cursor >= 0; cursor--) {
+        if (chat[cursor]?.is_user && !chat[cursor]?.is_system && String(chat[cursor].mes || '').trim()) {
+            userMessage = String(chat[cursor].mes).trim();
+            break;
+        }
+    }
+
+    const assistantMessage = chat[index];
+    const assistantText = String(assistantMessage.mes || '').trim();
+    const chatIdentity = getAutoBackgroundChatIdentity(context);
+    return {
+        context,
+        chatIdentity,
+        index,
+        assistantMessage,
+        assistantText,
+        userMessage,
+        fingerprint: `${chatIdentity}:${index}:${getAutoBackgroundTextHash(assistantText)}`,
+    };
+}
+
+function isAutoBackgroundTargetCurrent(target, requireLatestAssistant = true) {
+    const context = getContext();
+    if (!target || getAutoBackgroundChatIdentity(context) !== target.chatIdentity) return false;
+    if (context.chat?.[target.index] !== target.assistantMessage) return false;
+    if (String(target.assistantMessage?.mes || '').trim() !== target.assistantText) return false;
+    if (!requireLatestAssistant) return true;
+
+    for (let index = context.chat.length - 1; index >= 0; index--) {
+        if (isNarrativeAssistantMessage(context.chat[index])) {
+            return index === target.index && context.chat[index] === target.assistantMessage;
+        }
+    }
+    return false;
+}
+
+function formatAutoBackgroundTimelineContext() {
+    try {
+        const timeline = window.protagonistStateExtension?.getTimelineContext?.();
+        if (!timeline || typeof timeline !== 'object') return '';
+        return [
+            `Location: ${timeline.location || '未明确'}`,
+            `Current time: ${timeline.currentTime || '未明确'}`,
+            `Previous time: ${timeline.previousTime || '未明确'}`,
+            `Elapsed time: ${timeline.elapsedTime || '未明确'}`,
+        ].join('\n');
+    } catch (error) {
+        console.warn('[AutoBackground] Failed to read Protagonist State timeline:', error);
+        return '';
+    }
+}
+
+function getAutoBackgroundMemoryStage() {
+    try {
+        return extractLatestMemoryStage(window.memoryExtension?.getSummaryText?.() || '');
+    } catch (error) {
+        console.warn('[AutoBackground] Failed to read Memory Summary:', error);
+        return '';
+    }
+}
+
+function syncAutoBackgroundControls() {
+    const mode = extension_settings.sd.auto_background_mode;
+    $('#sd_auto_background_interval_block').toggle(mode === AUTO_BACKGROUND_MODES.INTERVAL);
+    renderAutoBackgroundStatus();
+}
+
+function renderAutoBackgroundStatus(statusOverride = '') {
+    const $status = $('#sd_auto_background_status');
+    if (!$status.length) return;
+    if (statusOverride) {
+        $status.text(statusOverride);
+        return;
+    }
+    if (autoBackgroundPending) {
+        $status.text('正在分析或生成背景……');
+        return;
+    }
+    if (!extension_settings.sd.auto_background_workflow) {
+        $status.text('请先选择背景工作流');
+        return;
+    }
+    if (!extension_settings.sd.auto_background_enabled) {
+        $status.text('自动生成已关闭，仍可手动生成');
+        return;
+    }
+    if (extension_settings.sd.source !== sources.comfy) {
+        $status.text('自动背景需要将图像来源设为 ComfyUI');
+        return;
+    }
+
+    const mode = extension_settings.sd.auto_background_mode;
+    if (mode === AUTO_BACKGROUND_MODES.MANUAL) {
+        $status.text('仅手动生成');
+        return;
+    }
+    if (mode === AUTO_BACKGROUND_MODES.INTERVAL) {
+        const interval = Math.max(1, Number(extension_settings.sd.auto_background_interval) || 5);
+        const count = getAssistantTurnsSinceLastAutoBackground(getContext().chat || []);
+        $status.text(`助手回复 ${count} / ${interval} 轮`);
+        return;
+    }
+
+    const previous = findLastAutoBackgroundMarker(getContext().chat || []);
+    $status.text(previous?.marker?.scene_key ? `当前场景：${previous.marker.scene_key}` : '等待下一条剧情回复识别场景');
+}
+
+function onAutoBackgroundEnabledInput() {
+    extension_settings.sd.auto_background_enabled = $(this).prop('checked');
+    saveSettingsDebounced();
+    syncAutoBackgroundControls();
+}
+
+function onAutoBackgroundModeChange() {
+    const mode = String($(this).val() || '');
+    extension_settings.sd.auto_background_mode = Object.values(AUTO_BACKGROUND_MODES).includes(mode)
+        ? mode
+        : AUTO_BACKGROUND_MODES.SCENE;
+    saveSettingsDebounced();
+    syncAutoBackgroundControls();
+}
+
+function onAutoBackgroundIntervalInput() {
+    const interval = Math.min(100, Math.max(1, Number($(this).val()) || 5));
+    extension_settings.sd.auto_background_interval = interval;
+    $(this).val(interval);
+    saveSettingsDebounced();
+    renderAutoBackgroundStatus();
+}
+
+function onAutoBackgroundWorkflowChange() {
+    extension_settings.sd.auto_background_workflow = String($(this).val() || '');
+    saveSettingsDebounced();
+    renderAutoBackgroundStatus();
+}
+
+function onAutoBackgroundShowMessageInput() {
+    extension_settings.sd.auto_background_show_message = $(this).prop('checked');
+    saveSettingsDebounced();
+}
+
+async function analyzeAutoBackgroundScene(target) {
+    const previous = findLastAutoBackgroundMarker(target.context.chat || []);
+    const quietPrompt = buildAutoBackgroundAnalysisPrompt({
+        userMessage: target.userMessage,
+        assistantMessage: target.assistantText,
+        timelineContext: formatAutoBackgroundTimelineContext(),
+        memoryStage: getAutoBackgroundMemoryStage(),
+        previousSceneKey: previous?.marker?.scene_key || '',
+    });
+    const response = await generateQuietPrompt({ quietPrompt });
+    return parseSceneAnalysisResponse(response);
+}
+
+async function persistAutoBackgroundResult(target, analysis, imagePath, prompt, negativePromptPrefix, prefixedPrompt, format) {
+    if (!isAutoBackgroundTargetCurrent(target, true)) {
+        console.warn('[AutoBackground] Target changed before the generated background could be saved.');
+        return false;
+    }
+
+    const context = getContext();
+    const targetMessage = target.assistantMessage;
+    const hadExtra = Object.hasOwn(targetMessage, 'extra');
+    const hadMarker = Object.hasOwn(targetMessage.extra || {}, AUTO_BACKGROUND_MARKER_KEY);
+    const previousMarker = targetMessage.extra?.[AUTO_BACKGROUND_MARKER_KEY];
+    const marker = {
+        scene_key: analysis.sceneKey,
+        prompt,
+        generated_at: Date.now(),
+    };
+    targetMessage.extra = targetMessage.extra || {};
+    targetMessage.extra[AUTO_BACKGROUND_MARKER_KEY] = marker;
+
+    let mediaMessage = null;
+    if (extension_settings.sd.auto_background_show_message) {
+        const mediaAttachment = {
+            url: imagePath,
+            type: MEDIA_TYPE.IMAGE,
+            title: prompt,
+            generation_type: generationMode.BACKGROUND,
+            negative: negativePromptPrefix,
+            source: MEDIA_SOURCE.GENERATED,
+        };
+        mediaMessage = {
+            name: systemUserName,
+            is_user: false,
+            is_system: true,
+            send_date: getMessageTimeStamp(),
+            mes: `场景背景：${analysis.sceneKey}`,
+            extra: {
+                [AUTO_BACKGROUND_MESSAGE_KEY]: true,
+                auto_background_prompt: prefixedPrompt,
+                media: [mediaAttachment],
+                media_display: MEDIA_DISPLAY.GALLERY,
+                media_index: 0,
+                inline_image: false,
+            },
+        };
+        context.chat.push(mediaMessage);
+    }
+
+    const rollback = () => {
+        if (mediaMessage) {
+            const mediaIndex = context.chat.indexOf(mediaMessage);
+            if (mediaIndex >= 0) context.chat.splice(mediaIndex, 1);
+        }
+        if (hadMarker) targetMessage.extra[AUTO_BACKGROUND_MARKER_KEY] = previousMarker;
+        else delete targetMessage.extra[AUTO_BACKGROUND_MARKER_KEY];
+        if (!hadExtra && Object.keys(targetMessage.extra).length === 0) delete targetMessage.extra;
+    };
+
+    try {
+        await context.saveChat();
+    } catch (error) {
+        rollback();
+        throw error;
+    }
+
+    if (!isAutoBackgroundTargetCurrent(target, true)) {
+        rollback();
+        try {
+            await context.saveChat();
+        } catch (error) {
+            console.error('[AutoBackground] Failed to remove a stale saved result:', error);
+        }
+        console.warn('[AutoBackground] A newer Assistant reply superseded the generated background.');
+        return false;
+    }
+
+    if (mediaMessage && getAutoBackgroundChatIdentity(context) === target.chatIdentity) {
+        const messageId = context.chat.indexOf(mediaMessage);
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, messageId, 'extension');
+        context.addOneMessage(mediaMessage);
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageId, 'extension');
+        setTimeout(() => context.scrollOnMediaLoad(), debounce_timeout.short);
+    }
+
+    if (getAutoBackgroundChatIdentity() === target.chatIdentity) {
+        const imgUrl = `url("${encodeURI(imagePath)}")`;
+        await eventSource.emit(event_types.FORCE_SET_BACKGROUND, { url: imgUrl, path: imagePath });
+    }
+    renderAutoBackgroundStatus(`背景已更新：${analysis.sceneKey}`);
+    return true;
+}
+
+async function generateAutoBackgroundImage(target, analysis, controller) {
+    const workflow = String(extension_settings.sd.auto_background_workflow || '').trim();
+    if (!workflow) throw new Error('请先选择小说背景工作流。');
+    if (extension_settings.sd.source !== sources.comfy) throw new Error('请先将图像生成来源切换为 ComfyUI。');
+    if (!isValidState()) throw new Error('ComfyUI 尚未连接，请检查地址并点击连接。');
+
+    const dimensions = setTypeSpecificDimensions(generationMode.BACKGROUND);
+    let persisted = false;
+    const loaderHandle = loader.show({
+        blocking: false,
+        slug: `${MODULE_NAME}-auto-background`,
+        title: '自动小说背景',
+        message: '正在调用 ComfyUI 生成场景背景……',
+        onStop: () => controller.abort('Stopped by user'),
+    });
+    try {
+        const imagePath = await sendGenerationRequest(
+            generationMode.BACKGROUND,
+            analysis.prompt,
+            '',
+            '',
+            async (prompt, path, _generationType, negativePromptPrefix, _initiator, prefixedPrompt, format) => {
+                persisted = await persistAutoBackgroundResult(target, analysis, path, prompt, negativePromptPrefix, prefixedPrompt, format);
+            },
+            initiators.autoBackground,
+            controller.signal,
+            { comfyWorkflow: workflow, silentAbort: true },
+        );
+        return Boolean(imagePath && persisted);
+    } finally {
+        restoreOriginalDimensions(dimensions);
+        await loaderHandle.hide();
+    }
+}
+
+async function runAutoBackground(target, { force = false } = {}) {
+    const controller = new AbortController();
+    autoBackgroundPending = { target, controller };
+    renderAutoBackgroundStatus();
+    try {
+        if (!isAutoBackgroundTargetCurrent(target, true)) return false;
+        if (!extension_settings.sd.auto_background_workflow) throw new Error('请先选择小说背景工作流。');
+        if (extension_settings.sd.source !== sources.comfy) throw new Error('请先将图像生成来源切换为 ComfyUI。');
+        const analysis = await analyzeAutoBackgroundScene(target);
+        if (controller.signal.aborted || !isAutoBackgroundTargetCurrent(target, true)) return false;
+
+        const previous = findLastAutoBackgroundMarker(target.context.chat || []);
+        const isSameScene = previous?.marker?.scene_key === analysis.sceneKey;
+        if (!force && extension_settings.sd.auto_background_mode === AUTO_BACKGROUND_MODES.SCENE && isSameScene) {
+            renderAutoBackgroundStatus(`场景未变化：${analysis.sceneKey}`);
+            return false;
+        }
+
+        return await generateAutoBackgroundImage(target, analysis, controller);
+    } catch (error) {
+        if (!controller.signal.aborted) {
+            console.error('[AutoBackground] Generation failed:', error);
+            toastr.error(`自动背景生成失败：${error.message || error}`, '自动小说背景');
+            renderAutoBackgroundStatus('生成失败，可在下一轮重试');
+        }
+        return false;
+    } finally {
+        autoBackgroundPending = null;
+        const queued = autoBackgroundQueuedTarget;
+        autoBackgroundQueuedTarget = null;
+        if (queued && isAutoBackgroundTargetCurrent(queued.target, true)) {
+            setTimeout(() => runAutoBackground(queued.target, { force: queued.force }), 0);
+        } else {
+            renderAutoBackgroundStatus();
+        }
+    }
+}
+
+function scheduleAutoBackground(messageId = null, { force = false, eventType = '' } = {}) {
+    const target = getAutoBackgroundTarget(messageId);
+    if (!target) {
+        if (force) toastr.warning('当前聊天中没有可用于生成背景的 Assistant 剧情回复。', '自动小说背景');
+        return;
+    }
+
+    if (autoBackgroundPending?.target?.fingerprint === target.fingerprint) {
+        return;
+    }
+
+    if (!force) {
+        if (!extension_settings.sd.auto_background_enabled) return;
+        if (extension_settings.sd.auto_background_mode === AUTO_BACKGROUND_MODES.MANUAL) return;
+        if (!extension_settings.sd.auto_background_workflow || extension_settings.sd.source !== sources.comfy) {
+            renderAutoBackgroundStatus();
+            return;
+        }
+        if (eventType && !autoBackgroundEventTypes.has(eventType)) return;
+        if (target.fingerprint === lastAutoBackgroundCheckedTarget) return;
+        lastAutoBackgroundCheckedTarget = target.fingerprint;
+
+        if (extension_settings.sd.auto_background_mode === AUTO_BACKGROUND_MODES.INTERVAL) {
+            const interval = Math.max(1, Number(extension_settings.sd.auto_background_interval) || 5);
+            const count = getAssistantTurnsSinceLastAutoBackground(target.context.chat || [], target.index);
+            renderAutoBackgroundStatus();
+            if (count < interval) return;
+        }
+    }
+
+    if (autoBackgroundPending) {
+        autoBackgroundQueuedTarget = { target, force };
+        autoBackgroundPending.controller.abort('Superseded by a newer Assistant reply');
+        return;
+    }
+    void runAutoBackground(target, { force });
+}
+
+function onAutoBackgroundMessageRendered(messageId, eventType) {
+    if (eventType === 'extension') return;
+    scheduleAutoBackground(Number(messageId), { eventType: String(eventType || '') });
+}
+
+function onAutoBackgroundGenerateNowClick() {
+    scheduleAutoBackground(null, { force: true });
 }
 
 async function adjustElementScrollHeight() {
@@ -1141,6 +1573,7 @@ async function onSourceChange() {
     toggleSourceControls();
     saveSettingsDebounced();
     await loadSettingOptions();
+    renderAutoBackgroundStatus();
 }
 
 async function onComfyTypeChange() {
@@ -2834,6 +3267,7 @@ async function loadComfyVaes() {
 async function loadComfyWorkflows() {
     try {
         $('#sd_comfy_workflow').empty();
+        $('#sd_auto_background_workflow').empty().append(new Option('请选择 API Format 工作流', ''));
         const result = await fetch('/api/sd/comfy/workflows', {
             method: 'POST',
             headers: getRequestHeaders(),
@@ -2845,13 +3279,25 @@ async function loadComfyWorkflows() {
             throw new Error('ComfyUI returned an error.');
         }
         const workflows = await result.json();
+        if (extension_settings.sd.auto_background_workflow && !workflows.includes(extension_settings.sd.auto_background_workflow)) {
+            extension_settings.sd.auto_background_workflow = '';
+            saveSettingsDebounced();
+        }
         for (const workflow of workflows) {
             const option = document.createElement('option');
             option.innerText = workflow;
             option.value = workflow;
             option.selected = workflow === extension_settings.sd.comfy_workflow;
             $('#sd_comfy_workflow').append(option);
+
+            const backgroundOption = document.createElement('option');
+            backgroundOption.innerText = workflow;
+            backgroundOption.value = workflow;
+            backgroundOption.selected = workflow === extension_settings.sd.auto_background_workflow;
+            $('#sd_auto_background_workflow').append(backgroundOption);
         }
+        $('#sd_auto_background_workflow').val(extension_settings.sd.auto_background_workflow || '');
+        renderAutoBackgroundStatus();
     } catch (error) {
         console.error(`Could not load ComfyUI workflows: ${error.message}`);
     }
@@ -3312,9 +3758,10 @@ async function generatePrompt(quietPrompt) {
  * @param {function} callback Callback function to be called after image generation
  * @param {string} initiator The initiator of the image generation
  * @param {AbortSignal} signal Abort signal to cancel the request
+ * @param {{comfyWorkflow?: string, silentAbort?: boolean}} [requestOptions] Per-request overrides
  * @returns
  */
-async function sendGenerationRequest(generationType, prompt, additionalNegativePrefix, characterName, callback, initiator, signal) {
+async function sendGenerationRequest(generationType, prompt, additionalNegativePrefix, characterName, callback, initiator, signal, requestOptions = {}) {
     const noCharPrefix = [generationMode.FREE, generationMode.BACKGROUND, generationMode.USER, generationMode.USER_MULTIMODAL, generationMode.FREE_EXTENDED];
     const isCharChat = this_chid !== undefined && !selected_group;
     const ignoreNoCharForSwipe = initiator === initiators.swipe && isCharChat;
@@ -3367,10 +3814,10 @@ async function sendGenerationRequest(generationType, prompt, additionalNegativeP
             case sources.comfy:
                 switch (extension_settings.sd.comfy_type) {
                     case comfyTypes.runpod_serverless:
-                        result = await generateComfyRunPodImage(prefixedPrompt, negativePrompt, signal);
+                        result = await generateComfyRunPodImage(prefixedPrompt, negativePrompt, signal, requestOptions.comfyWorkflow);
                         break;
                     case comfyTypes.standard:
-                        result = await generateComfyImage(prefixedPrompt, negativePrompt, signal);
+                        result = await generateComfyImage(prefixedPrompt, negativePrompt, signal, requestOptions.comfyWorkflow);
                         break;
                     default:
                         throw new Error('Unknown comfyUI server type.');
@@ -3427,7 +3874,9 @@ async function sendGenerationRequest(generationType, prompt, additionalNegativeP
         // Check if this was an intentional abort by user
         if (signal?.aborted) {
             console.log('SD: Image generation aborted by user');
-            toastr.info('Image generation stopped.', 'Image Generation');
+            if (!requestOptions.silentAbort) {
+                toastr.info('Image generation stopped.', 'Image Generation');
+            }
             return;
         }
 
@@ -4216,21 +4665,33 @@ async function generateAimlapiImage(prompt, signal) {
  * @param {string} basePath - ST server endpoint for the service. '/api/sd/comfy' for local, '/api/sd/comfyrunpod' for serverless.
  * @param {string[]} placeholders - Array of substitutions to apply to the workflow.
  * @param {string} url - The url of the service to call. Passed to ST server.
+ * @param {string} [workflowName] Workflow file override for this request.
  * @returns {Promise<{format: string, data: string}>} - A promise that resolves when the image generation and processing are complete.
  */
-async function generateComfyImageCommon(prompt, negativePrompt, signal, basePath, placeholders, url) {
+async function generateComfyImageCommon(prompt, negativePrompt, signal, basePath, placeholders, url, workflowName = extension_settings.sd.comfy_workflow) {
     const workflowResponse = await fetch('/api/sd/comfy/workflow', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({
-            file_name: extension_settings.sd.comfy_workflow,
+            file_name: workflowName,
         }),
     });
     if (!workflowResponse.ok) {
         const text = await workflowResponse.text();
         toastr.error(`Failed to load workflow.\n\n${text}`);
+        throw new Error(text || 'Failed to load the selected ComfyUI workflow.');
     }
-    let workflow = (await workflowResponse.json()).replaceAll('"%prompt%"', JSON.stringify(prompt));
+    const workflowTemplate = await workflowResponse.json();
+    try {
+        const parsedWorkflow = JSON.parse(workflowTemplate);
+        if (Array.isArray(parsedWorkflow?.nodes) || Array.isArray(parsedWorkflow?.links)) {
+            throw new Error('This is a ComfyUI UI workflow. Export it with "Save (API Format)" before using it in SillyTavern.');
+        }
+    } catch (error) {
+        if (String(error.message || '').includes('ComfyUI UI workflow')) throw error;
+        throw new Error(`The selected ComfyUI workflow is not valid JSON: ${error.message}`);
+    }
+    let workflow = workflowTemplate.replaceAll('"%prompt%"', JSON.stringify(prompt));
     workflow = workflow.replaceAll('"%negative_prompt%"', JSON.stringify(negativePrompt));
 
     const seed = extension_settings.sd.seed >= 0 ? extension_settings.sd.seed : Math.round(Math.random() * Number.MAX_SAFE_INTEGER);
@@ -4300,7 +4761,7 @@ async function generateComfyImageCommon(prompt, negativePrompt, signal, basePath
  * @param {AbortSignal} signal - An AbortSignal object that can be used to cancel the request.
  * @returns {Promise<{format: string, data: string}>} - A promise that resolves when the image generation and processing are complete.
  */
-async function generateComfyImage(prompt, negativePrompt, signal) {
+async function generateComfyImage(prompt, negativePrompt, signal, workflowName = extension_settings.sd.comfy_workflow) {
     const placeholders = [
         'model',
         'vae',
@@ -4311,7 +4772,7 @@ async function generateComfyImage(prompt, negativePrompt, signal) {
         'width',
         'height',
     ];
-    return generateComfyImageCommon(prompt, negativePrompt, signal, '/api/sd/comfy', placeholders, extension_settings.sd.comfy_url);
+    return generateComfyImageCommon(prompt, negativePrompt, signal, '/api/sd/comfy', placeholders, extension_settings.sd.comfy_url, workflowName);
 }
 
 /**
@@ -4322,7 +4783,7 @@ async function generateComfyImage(prompt, negativePrompt, signal) {
  * @param {AbortSignal} signal - An AbortSignal object that can be used to cancel the request.
  * @returns {Promise<{format: string, data: string}>} - A promise that resolves when the image generation and processing are complete.
  */
-async function generateComfyRunPodImage(prompt, negativePrompt, signal) {
+async function generateComfyRunPodImage(prompt, negativePrompt, signal, workflowName = extension_settings.sd.comfy_workflow) {
     const placeholders = [
         'steps',
         'scale',
@@ -4330,7 +4791,7 @@ async function generateComfyRunPodImage(prompt, negativePrompt, signal) {
         'height',
     ];
 
-    return generateComfyImageCommon(prompt, negativePrompt, signal, '/api/sd/comfyrunpod', placeholders, extension_settings.sd.comfy_runpod_url);
+    return generateComfyImageCommon(prompt, negativePrompt, signal, '/api/sd/comfyrunpod', placeholders, extension_settings.sd.comfy_runpod_url, workflowName);
 }
 
 /**
@@ -5851,6 +6312,12 @@ export async function init() {
     $('#sd_comfy_url').on('input', onComfyUrlInput);
     $('#sd_comfy_runpod_url').on('input', onComfyRunPodUrlInput);
     $('#sd_comfy_workflow').on('change', onComfyWorkflowChange);
+    $('#sd_auto_background_enabled').on('input', onAutoBackgroundEnabledInput);
+    $('#sd_auto_background_mode').on('change', onAutoBackgroundModeChange);
+    $('#sd_auto_background_interval').on('input', onAutoBackgroundIntervalInput);
+    $('#sd_auto_background_workflow').on('change', onAutoBackgroundWorkflowChange);
+    $('#sd_auto_background_show_message').on('input', onAutoBackgroundShowMessageInput);
+    $('#sd_auto_background_generate_now').on('click', onAutoBackgroundGenerateNowClick);
     $('#sd_comfy_open_workflow_editor').on('click', onComfyOpenWorkflowEditorClick);
     $('#sd_comfy_new_workflow').on('click', onComfyNewWorkflowClick);
     $('#sd_comfy_rename_workflow').on('click', onComfyRenameWorkflowClick);
@@ -5929,6 +6396,7 @@ export async function init() {
 
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
     eventSource.on(event_types.IMAGE_SWIPED, onImageSwiped);
+    eventSource.makeLast(event_types.CHARACTER_MESSAGE_RENDERED, onAutoBackgroundMessageRendered);
 
     [event_types.SECRET_WRITTEN, event_types.SECRET_DELETED, event_types.SECRET_ROTATED].forEach(event => {
         eventSource.on(event, async (/** @type {string} */ key) => {
